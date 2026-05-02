@@ -1,65 +1,413 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { Header } from "@/components/Header";
+import { UrlInput } from "@/components/UrlInput";
+import { ModeSelector } from "@/components/ModeSelector";
+import { ProcessingStatus } from "@/components/ProcessingStatus";
+import { PdfPreview } from "@/components/PdfPreview";
+import { Mode, ProcessingStep, SummaryResult } from "@/lib/types";
+
+type AppState = "idle" | "processing" | "done" | "error";
 
 export default function Home() {
+  const [url, setUrl] = useState("");
+  const [mode, setMode] = useState<Mode>("normal");
+  const [state, setState] = useState<AppState>("idle");
+  const [steps, setSteps] = useState<ProcessingStep[]>([]);
+  const [error, setError] = useState("");
+  const [summary, setSummary] = useState<SummaryResult | null>(null);
+  const [pdfBuffer, setPdfBuffer] = useState<ArrayBuffer | null>(null);
+  const [fromCache, setFromCache] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
+  const initialSteps: ProcessingStep[] = [
+    { id: "extract", label: "Extracting transcript from video", status: "pending" },
+    { id: "summarize", label: "Analyzing content with AI", status: "pending" },
+    { id: "generate", label: "Generating PDF", status: "pending" },
+  ];
+
+  const updateStep = (
+    stepId: string,
+    status: ProcessingStep["status"],
+    errorMsg?: string
+  ) => {
+    setSteps((prev) =>
+      prev.map((s) =>
+        s.id === stepId ? { ...s, status, error: errorMsg } : s
+      )
+    );
+  };
+
+  const extractVideoId = (input: string): string | null => {
+    if (input.length === 11 && /^[a-zA-Z0-9_-]+$/.test(input)) return input;
+    const match = input.match(
+      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+    );
+    return match?.[1] ?? null;
+  };
+
+  const handleGenerate = async (inputUrl: string, regenerate = false) => {
+    const videoId = extractVideoId(inputUrl);
+    if (!videoId) {
+      setError("Could not extract video ID from the URL");
+      setState("error");
+      return;
+    }
+
+    if (!regenerate) {
+      setUrl(inputUrl);
+    }
+    setError("");
+    setSummary(null);
+    setPdfBuffer(null);
+    setFromCache(false);
+    setState("processing");
+    setSteps(initialSteps);
+
+    try {
+      updateStep("extract", "in_progress");
+
+      const extractRes = await fetch("/api/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: inputUrl }),
+      });
+
+      if (!extractRes.ok) {
+        const err = await extractRes.json();
+        throw new Error(err.error || "Failed to extract transcript");
+      }
+
+      const { videoId: vidId, title, transcript } = await extractRes.json();
+      updateStep("extract", "done");
+
+      updateStep("summarize", "in_progress");
+
+      const summarizeRes = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript,
+          mode,
+          title,
+          videoId: vidId,
+        }),
+      });
+
+      if (!summarizeRes.ok) {
+        const err = await summarizeRes.json();
+        throw new Error(err.error || "Failed to generate summary");
+      }
+
+      const summaryResult = await summarizeRes.json();
+      setSummary(summaryResult);
+      updateStep("summarize", "done");
+
+      updateStep("generate", "in_progress");
+
+      const pdfRes = await fetch("/api/generate-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          summary: summaryResult,
+          mode,
+          videoId: vidId,
+          title,
+        }),
+      });
+
+      if (!pdfRes.ok) {
+        const err = await pdfRes.json();
+        throw new Error(err.error || "Failed to generate PDF");
+      }
+
+      const pdfArrayBuffer = await pdfRes.arrayBuffer();
+      setPdfBuffer(pdfArrayBuffer);
+      updateStep("generate", "done");
+      setState("done");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong";
+      setError(message);
+      setState("error");
+
+      const currentStep = steps.find((s) => s.status === "in_progress");
+      if (currentStep) {
+        updateStep(currentStep.id, "error", message);
+      }
+    }
+  };
+
+  const handleDownload = () => {
+    if (!pdfBuffer) return;
+    const blob = new Blob([pdfBuffer], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${summary?.title || "video"}-${mode}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleReset = () => {
+    setUrl("");
+    setState("idle");
+    setSteps([]);
+    setError("");
+    setSummary(null);
+    setPdfBuffer(null);
+    setFromCache(false);
+    setIsRegenerating(false);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+    <div className="flex flex-col min-h-screen">
+      <Header />
+
+      <main className="flex-1">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+          {state === "idle" && (
+            <div className="space-y-8">
+              <div className="text-center space-y-3">
+                <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  YouTube Videos to{" "}
+                  <span className="text-indigo-600 dark:text-indigo-400">PDFs</span>
+                </h2>
+                <p className="text-zinc-500 dark:text-zinc-400 text-base sm:text-lg max-w-2xl mx-auto">
+                  Convert any YouTube video into a beautifully formatted PDF with
+                  summaries, timestamps, and key takeaways. Perfect for readers
+                  who prefer text over video.
+                </p>
+              </div>
+
+              <UrlInput
+                onSubmit={(u) => handleGenerate(u)}
+                isLoading={false}
+              />
+
+              <ModeSelector
+                mode={mode}
+                onModeChange={setMode}
+                disabled={false}
+              />
+
+              {mode === "system-design" && (
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex gap-3">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    </svg>
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                        System Design Mode
+                      </h4>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                        Best for architecture, design, and engineering videos. Generates
+                        Mermaid diagrams, trade-offs analysis, and detailed system breakdowns.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
+                <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center mb-3">
+                    <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+                    </svg>
+                  </div>
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    Smart Summaries
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                    AI-powered summaries that capture the essence of any video
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+                  <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900 flex items-center justify-center mb-3">
+                    <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    Timestamped Topics
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                    Navigate to any section with detailed timestamp breakdowns
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+                  <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900 flex items-center justify-center mb-3">
+                    <svg className="w-4 h-4 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    Architecture Diagrams
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                    System design mode creates Mermaid diagrams from video content
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {state === "processing" && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+                <button
+                  onClick={handleReset}
+                  className="hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+                >
+                  Home
+                </button>
+                <span>/</span>
+                <span className="text-zinc-900 dark:text-zinc-100">
+                  Processing
+                </span>
+              </div>
+
+              <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-700 flex-shrink-0 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200 truncate">
+                      {url}
+                    </p>
+                    <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                      Mode: {mode === "system-design" ? "System Design" : "Normal"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <ProcessingStatus steps={steps} fromCache={fromCache} />
+
+              <button
+                onClick={handleReset}
+                className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {state === "error" && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+                <button
+                  onClick={handleReset}
+                  className="hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+                >
+                  Home
+                </button>
+                <span>/</span>
+                <span className="text-red-500 dark:text-red-400">Error</span>
+              </div>
+
+              <div className={`p-6 rounded-xl border ${
+                error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                  ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+                  : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+              }`}>
+                <div className="flex items-start gap-3">
+                  {(error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) ? (
+                    <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                    </svg>
+                  )}
+                  <div>
+                    <h3 className={`font-semibold ${
+                      error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                        ? "text-amber-800 dark:text-amber-300"
+                        : "text-red-800 dark:text-red-300"
+                    }`}>
+                      {error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                        ? "Rate limit reached"
+                        : "Something went wrong"}
+                    </h3>
+                    <p className={`text-sm mt-1 ${
+                      error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                        ? "text-amber-700 dark:text-amber-400"
+                        : "text-red-600 dark:text-red-400"
+                    }`}>
+                      {error}
+                    </p>
+                    {(error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) && (
+                      <p className="text-xs mt-2 text-amber-600 dark:text-amber-500">
+                        The free Gemini tier allows 15 requests per minute. Wait about 60 seconds before retrying.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={handleReset}
+                className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium transition-all"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
+
+          {state === "done" && summary && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+                <button
+                  onClick={handleReset}
+                  className="hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+                >
+                  Home
+                </button>
+                <span>/</span>
+                <span className="text-zinc-900 dark:text-zinc-100">Result</span>
+              </div>
+
+              {fromCache && (
+                <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 text-sm text-emerald-700 dark:text-emerald-300">
+                  Result loaded from cache — no AI calls needed!
+                </div>
+              )}
+
+              <ProcessingStatus steps={steps} fromCache={fromCache} />
+
+              <PdfPreview
+                summary={{
+                  title: summary.title,
+                  gist: summary.gist,
+                  keyTakeaways: summary.keyTakeaways,
+                }}
+                pdfBuffer={pdfBuffer}
+                onDownload={handleDownload}
+                onReset={handleReset}
+                onRegenerate={() => handleGenerate(url, true)}
+                isRegenerating={isRegenerating}
+              />
+            </div>
+          )}
         </div>
       </main>
+
+      <footer className="border-t border-zinc-200 dark:border-zinc-800 py-6">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <p className="text-xs text-center text-zinc-400 dark:text-zinc-500">
+            yt2pdf — Transform YouTube videos into readable PDFs. Powered by Google Gemini AI.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
