@@ -6,11 +6,6 @@ const RE_YOUTUBE =
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)";
 
-const PROXIES = [
-  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-];
-
 interface CaptionTrack {
   baseUrl: string;
   languageCode: string;
@@ -56,6 +51,10 @@ const INNER_TUBE_CLIENTS = [
   },
 ];
 
+function proxyUrl(url: string): string {
+  return `https://corsproxy.io/?${encodeURIComponent(url)}`;
+}
+
 export function extractVideoId(input: string): string {
   if (input.length === 11 && /^[a-zA-Z0-9_-]+$/.test(input)) {
     return input;
@@ -80,6 +79,23 @@ export async function getVideoTitle(videoId: string): Promise<string> {
           Accept:
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    if (response.ok) {
+      const html = await response.text();
+      const titleMatch = html.match(/<title>([^<]+)<\/title>/);
+      if (titleMatch) {
+        return titleMatch[1].replace(" - YouTube", "").trim();
+      }
+    }
+  } catch {}
+  try {
+    const response = await fetch(
+      proxyUrl(`https://www.youtube.com/watch?v=${videoId}`),
+      {
+        headers: { Accept: "text/html,*/*" },
+        signal: AbortSignal.timeout(10000),
       }
     );
     if (response.ok) {
@@ -174,45 +190,35 @@ async function fetchCaptionXml(track: CaptionTrack): Promise<string> {
     url += (url.includes("?") ? "&" : "?") + "fmt=srv3";
   }
 
-  const headers = { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" };
-
-  const directResponse = await fetch(url, { headers });
-  if (directResponse.ok) {
-    const text = await directResponse.text();
-    if (text.length > 0) {
-      console.log("Caption fetch: direct succeeded");
-      return text;
-    }
-  }
-
-  const fallbackUrl = track.baseUrl;
-  const fallbackResponse = await fetch(fallbackUrl, { headers });
-  if (fallbackResponse.ok) {
-    const text = await fallbackResponse.text();
-    if (text.length > 0) {
-      console.log("Caption fetch: fallback (no fmt) succeeded");
-      return text;
-    }
-  }
-
-  console.log("Caption fetch: direct returned empty, trying proxies...");
-  for (const makeProxy of PROXIES) {
-    try {
-      const proxyUrl = makeProxy(url);
-      const proxyResponse = await fetch(proxyUrl, {
-        headers: { Accept: "text/xml,*/*" },
-      });
-      if (proxyResponse.ok) {
-        const text = await proxyResponse.text();
-        if (text.length > 0 && text.includes("<")) {
-          console.log(`Caption fetch: proxy succeeded (${text.length} chars)`);
-          return text;
-        }
+  // 1. Direct fetch (works locally, fast)
+  try {
+    const r = await fetch(url, {
+      headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (r.ok) {
+      const text = await r.text();
+      if (text.length > 100) {
+        console.log("Caption: direct fetch succeeded");
+        return text;
       }
-    } catch (e) {
-      console.log(`Caption fetch: proxy failed: ${(e as Error).message}`);
     }
-  }
+  } catch {}
+
+  // 2. Proxy fetch via corsproxy.io (works on Vercel/cloud)
+  try {
+    const r = await fetch(proxyUrl(url), {
+      headers: { Accept: "text/xml,*/*" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (r.ok) {
+      const text = await r.text();
+      if (text.length > 100 && text.includes("<")) {
+        console.log("Caption: proxy fetch succeeded");
+        return text;
+      }
+    }
+  } catch {}
 
   throw new Error("Failed to fetch caption XML from all methods");
 }
@@ -234,21 +240,14 @@ async function tryInnerTube(
           "User-Agent": client.ua,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(8000),
       });
 
-      if (!response.ok) {
-        console.log(`InnerTube ${client.name}: HTTP ${response.status}`);
-        continue;
-      }
+      if (!response.ok) continue;
 
       const data = await response.json();
 
-      if (data?.playabilityStatus?.status !== "OK") {
-        console.log(
-          `InnerTube ${client.name}: playability=${data?.playabilityStatus?.status}`
-        );
-        continue;
-      }
+      if (data?.playabilityStatus?.status !== "OK") continue;
 
       const tracks =
         data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -260,8 +259,6 @@ async function tryInnerTube(
         );
         return { tracks, title };
       }
-
-      console.log(`InnerTube ${client.name}: no caption tracks`);
     } catch (e) {
       console.log(
         `InnerTube ${client.name} failed: ${e instanceof Error ? e.message : e}`
@@ -271,146 +268,44 @@ async function tryInnerTube(
   return null;
 }
 
-async function tryInnerTubeViaProxy(
-  videoId: string
-): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
-  for (const makeProxy of PROXIES) {
-    try {
-      const proxyUrl = makeProxy(INNERTUBE_URL);
-      for (const client of INNER_TUBE_CLIENTS) {
-        try {
-          const body = JSON.stringify({
-            context: { client: client.client },
-            videoId,
-          });
-
-          const response = await fetch(proxyUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "User-Agent": client.ua,
-              "X-Original-URL": INNERTUBE_URL,
-            },
-            body,
-          });
-
-          if (!response.ok) continue;
-
-          const data = await response.json();
-
-          if (data?.playabilityStatus?.status !== "OK") continue;
-
-          const tracks =
-            data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-
-          if (Array.isArray(tracks) && tracks.length > 0) {
-            const title = data?.videoDetails?.title || `Video ${videoId}`;
-            console.log(
-              `Proxy+InnerTube ${client.name} found ${tracks.length} caption tracks`
-            );
-            return { tracks, title };
-          }
-        } catch {
-          continue;
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
 async function tryWebPageScrape(
   videoId: string
 ): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
-  try {
-    const response = await fetch(
-      `https://www.youtube.com/watch?v=${videoId}`,
-      {
+  const fetchStrategies = [
+    // Direct fetch
+    async () => {
+      const r = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
         headers: {
           "User-Agent": BROWSER_UA,
           "Accept-Language": "en-US,en;q=0.9",
           Accept:
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
-      }
-    );
-
-    if (!response.ok) return null;
-
-    const html = await response.text();
-
-    if (html.includes('class="g-recaptcha"')) {
-      console.log("Web scrape: YouTube requires captcha");
-      return null;
-    }
-
-    const startMarker = "var ytInitialPlayerResponse = ";
-    const startIndex = html.indexOf(startMarker);
-    if (startIndex === -1) return null;
-
-    const jsonStart = html.indexOf("{", startIndex);
-    if (jsonStart === -1) return null;
-
-    let depth = 0;
-    let endIndex = -1;
-    for (let i = jsonStart; i < html.length; i++) {
-      if (html[i] === "{") depth++;
-      else if (html[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          endIndex = i + 1;
-          break;
-        }
-      }
-    }
-
-    if (endIndex === -1) return null;
-
-    const jsonStr = html.substring(jsonStart, endIndex);
-
-    const playerData = JSON.parse(jsonStr);
-    const tracks =
-      playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-
-    if (Array.isArray(tracks) && tracks.length > 0) {
-      const title =
-        playerData?.videoDetails?.title ||
-        playerData?.microformat?.playerMicroformatRenderer?.title?.simpleText ||
-        `Video ${videoId}`;
-
-      console.log(
-        `Web scrape found ${tracks.length} caption tracks for ${videoId}`
-      );
-      return { tracks, title };
-    }
-
-    console.log(`Web scrape: no captions for ${videoId}`);
-    return null;
-  } catch (error) {
-    console.log(
-      `Web scrape failed: ${error instanceof Error ? error.message : error}`
-    );
-    return null;
-  }
-}
-
-async function tryWebPageScrapeViaProxy(
-  videoId: string
-): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
-  const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
-  for (const makeProxy of PROXIES) {
-    try {
-      const proxyUrl = makeProxy(youtubeUrl);
-      const response = await fetch(proxyUrl, {
-        headers: { Accept: "text/html,*/*" },
+        signal: AbortSignal.timeout(8000),
       });
+      return r;
+    },
+    // Proxy fetch
+    async () => {
+      const r = await fetch(
+        proxyUrl(`https://www.youtube.com/watch?v=${videoId}`),
+        {
+          headers: { Accept: "text/html,*/*" },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+      return r;
+    },
+  ];
 
+  for (const fetchFn of fetchStrategies) {
+    try {
+      const response = await fetchFn();
       if (!response.ok) continue;
 
       const html = await response.text();
+
+      if (html.includes('class="g-recaptcha"')) continue;
 
       const startMarker = "var ytInitialPlayerResponse = ";
       const startIndex = html.indexOf(startMarker);
@@ -447,12 +342,12 @@ async function tryWebPageScrapeViaProxy(
           `Video ${videoId}`;
 
         console.log(
-          `Proxy+Web scrape found ${tracks.length} caption tracks for ${videoId}`
+          `Web scrape found ${tracks.length} caption tracks for ${videoId}`
         );
         return { tracks, title };
       }
     } catch (e) {
-      console.log(`Proxy+Web scrape failed: ${(e as Error).message}`);
+      console.log(`Web scrape strategy failed: ${(e as Error).message}`);
     }
   }
   return null;
@@ -469,8 +364,6 @@ export async function extractTranscript(
   const findTrackStrategies: StrategyFn[] = [
     () => tryInnerTube(videoId),
     () => tryWebPageScrape(videoId),
-    () => tryInnerTubeViaProxy(videoId),
-    () => tryWebPageScrapeViaProxy(videoId),
   ];
 
   for (const strategy of findTrackStrategies) {
@@ -488,7 +381,7 @@ export async function extractTranscript(
         return { videoId, title: result.title, transcript };
       }
     } catch (e) {
-      console.log(`Caption fetch failed for strategy: ${(e as Error).message}`);
+      console.log(`Caption fetch failed: ${(e as Error).message}`);
     }
   }
 
