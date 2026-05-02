@@ -4,7 +4,10 @@ const RE_YOUTUBE =
   /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
 
 const BROWSER_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)";
+
+const CAPTION_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)";
 
 interface CaptionTrack {
   baseUrl: string;
@@ -20,27 +23,33 @@ interface TranscriptEntry {
   lang?: string;
 }
 
-const INNERTUBE_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+const INNERTUBE_URL =
+  "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 
 const INNER_TUBE_CLIENTS = [
   {
-    name: "IOS",
-    client: { clientName: "IOS", clientVersion: "19.29.1", hl: "en", gl: "US", deviceMake: "Apple", deviceModel: "iPhone16,2", osVersion: "17.5.1" },
-    ua: "com.google.ios.youtube/19.29.1 (iPhone16,2; iOS 17.5.1)",
-  },
-  {
     name: "ANDROID",
-    client: { clientName: "ANDROID", clientVersion: "19.29.37", hl: "en", gl: "US", androidSdkVersion: 30 },
-    ua: "com.google.android.youtube/19.29.37 (Linux; U; Android 14)",
+    client: { clientName: "ANDROID", clientVersion: "20.10.38" },
+    ua: "com.google.android.youtube/20.10.38 (Linux; U; Android 14)",
   },
   {
-    name: "TVHTML5",
-    client: { clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER", clientVersion: "2.0", hl: "en", gl: "US" },
-    ua: "Mozilla/5.0 (TV; rv:88.0) Gecko/88.0 Firefox/88.0",
+    name: "IOS",
+    client: {
+      clientName: "IOS",
+      clientVersion: "20.10.38",
+      hl: "en",
+      gl: "US",
+    },
+    ua: "com.google.ios.youtube/20.10.38 (iPhone16,2; iOS 17.5.1)",
   },
   {
     name: "WEB",
-    client: { clientName: "WEB", clientVersion: "2.20240510.00.00", hl: "en", gl: "US" },
+    client: {
+      clientName: "WEB",
+      clientVersion: "2.20240510.00.00",
+      hl: "en",
+      gl: "US",
+    },
     ua: BROWSER_UA,
   },
 ];
@@ -66,7 +75,8 @@ export async function getVideoTitle(videoId: string): Promise<string> {
         headers: {
           "User-Agent": BROWSER_UA,
           "Accept-Language": "en-US,en;q=0.9",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
       }
     );
@@ -96,22 +106,26 @@ function selectCaptionTrack(tracks: CaptionTrack[]): CaptionTrack {
   return tracks[0];
 }
 
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+      String.fromCodePoint(parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, dec) =>
+      String.fromCodePoint(parseInt(dec, 10))
+    );
+}
+
 function parseXmlTranscript(xml: string, lang: string): TranscriptEntry[] {
   const results: TranscriptEntry[] = [];
 
-  const htmlUnescape: Record<string, string> = {
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": '"',
-    "&#39;": "'",
-    "&apos;": "'",
-    "&nbsp;": " ",
-  };
-
-  const unescape = (s: string) =>
-    s.replace(/&[^;]+;/g, (m) => htmlUnescape[m] || m);
-
+  // srv3 format: <p t="ms" d="ms"><s>word</s>...</p>
   const pRegex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
   let match: RegExpExecArray | null;
   while ((match = pRegex.exec(xml)) !== null) {
@@ -122,8 +136,8 @@ function parseXmlTranscript(xml: string, lang: string): TranscriptEntry[] {
     const sRegex = /<s[^>]*>([^<]*)<\/s>/g;
     let sText = "";
     let sMatch: RegExpExecArray | null;
-    while ((sMatch = sRegex.exec(text)) !== null) {
-      sText += sMatch[1] + " ";
+    while ((sRegex.lastIndex = sText.length > 0 ? sRegex.lastIndex : 0, (sMatch = sRegex.exec(text)) !== null)) {
+      sText += sMatch[1];
     }
     if (sText.trim()) {
       text = sText.trim();
@@ -131,7 +145,7 @@ function parseXmlTranscript(xml: string, lang: string): TranscriptEntry[] {
       text = text.replace(/<[^>]+>/g, "");
     }
 
-    text = unescape(text).replace(/\n/g, " ").trim();
+    text = decodeEntities(text).replace(/\n/g, " ").trim();
     if (text) {
       results.push({ text, duration: durMs, offset: startMs, lang });
     }
@@ -139,11 +153,13 @@ function parseXmlTranscript(xml: string, lang: string): TranscriptEntry[] {
 
   if (results.length > 0) return results;
 
-  const textRegex = /<text\s+start="([^"]*)"\s+dur="([^"]*)"[^>]*>([^<]*)<\/text>/g;
+  // Classic format: <text start="s" dur="s">content</text>
+  const textRegex =
+    /<text\s+start="([^"]*)"\s+dur="([^"]*)"[^>]*>([^<]*)<\/text>/g;
   while ((match = textRegex.exec(xml)) !== null) {
     const start = parseFloat(match[1]) * 1000;
     const dur = parseFloat(match[2]) * 1000;
-    let text = unescape(match[3]).replace(/\n/g, " ").trim();
+    let text = decodeEntities(match[3]).replace(/\n/g, " ").trim();
     if (text) {
       results.push({ text, duration: dur, offset: start, lang });
     }
@@ -159,110 +175,26 @@ async function fetchCaptionXml(track: CaptionTrack): Promise<string> {
   }
 
   const response = await fetch(url, {
-    headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
+    headers: { "User-Agent": CAPTION_UA, Accept: "text/xml,*/*" },
   });
 
   if (response.ok) {
-    return response.text();
+    const text = await response.text();
+    if (text.length > 0) return text;
   }
 
   const fallback = await fetch(track.baseUrl, {
-    headers: { "User-Agent": BROWSER_UA },
+    headers: { "User-Agent": CAPTION_UA },
   });
   if (fallback.ok) {
-    return fallback.text();
+    const text = await fallback.text();
+    if (text.length > 0) return text;
   }
 
   throw new Error(`Failed to fetch caption XML: ${response.status}`);
 }
 
-// Strategy 1: Scrape YouTube page HTML for caption tracks
-async function tryWebPageScrape(
-  videoId: string
-): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
-  try {
-    const response = await fetch(
-      `https://www.youtube.com/watch?v=${videoId}`,
-      {
-        headers: {
-          "User-Agent": BROWSER_UA,
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-      }
-    );
-
-    if (!response.ok) return null;
-
-    const html = await response.text();
-
-    // Extract ytInitialPlayerResponse from the page
-    // YouTube puts it in: var ytInitialPlayerResponse = {...};
-    const varStart = html.indexOf("var ytInitialPlayerResponse = ");
-    if (varStart === -1) {
-      // Try alternative format: ytInitialPlayerResponse = {...};
-      const altStart = html.indexOf("ytInitialPlayerResponse = ");
-      if (altStart === -1) return null;
-    }
-
-    const startMarker = "var ytInitialPlayerResponse = ";
-    const startIndex = html.indexOf(startMarker);
-    if (startIndex === -1) return null;
-
-    const jsonStart = html.indexOf("{", startIndex);
-    if (jsonStart === -1) return null;
-
-    // Find the matching closing brace
-    let depth = 0;
-    let endIndex = -1;
-    for (let i = jsonStart; i < html.length; i++) {
-      if (html[i] === "{") depth++;
-      else if (html[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          endIndex = i + 1;
-          break;
-        }
-      }
-    }
-
-    if (endIndex === -1) return null;
-
-    const jsonStr = html.substring(jsonStart, endIndex);
-
-    try {
-      const playerData = JSON.parse(jsonStr);
-      const tracks =
-        playerData?.captions?.playerCaptionsTracklistRenderer
-          ?.captionTracks;
-
-      if (Array.isArray(tracks) && tracks.length > 0) {
-        const title =
-          playerData?.videoDetails?.title ||
-          playerData?.microformat?.playerMicroformatRenderer?.title
-            ?.simpleText ||
-          `Video ${videoId}`;
-
-        console.log(
-          `Web scrape found ${tracks.length} caption tracks for ${videoId}`
-        );
-        return { tracks, title };
-      }
-    } catch (e) {
-      console.log("Failed to parse ytInitialPlayerResponse:", (e as Error).message?.substring(0, 100));
-    }
-
-    console.log(`Web scrape found no captions for ${videoId}`);
-    return null;
-  } catch (error) {
-    console.log(
-      `Web scrape failed: ${error instanceof Error ? error.message : error}`
-    );
-    return null;
-  }
-}
-
-// Strategy 2: InnerTube API with multiple client contexts
+// Strategy 1: InnerTube API
 async function tryInnerTube(
   videoId: string
 ): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
@@ -282,21 +214,32 @@ async function tryInnerTube(
         body: JSON.stringify(body),
       });
 
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`InnerTube ${client.name}: HTTP ${response.status}`);
+        continue;
+      }
 
       const data = await response.json();
+
+      if (data?.playabilityStatus?.status !== "OK") {
+        console.log(
+          `InnerTube ${client.name}: playability=${data?.playabilityStatus?.status}`
+        );
+        continue;
+      }
+
       const tracks =
         data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
 
       if (Array.isArray(tracks) && tracks.length > 0) {
-        const title =
-          data?.videoDetails?.title || `Video ${videoId}`;
-
+        const title = data?.videoDetails?.title || `Video ${videoId}`;
         console.log(
-          `InnerTube ${client.name} found ${tracks.length} caption tracks`
+          `InnerTube ${client.name} found ${tracks.length} caption tracks for ${videoId}`
         );
         return { tracks, title };
       }
+
+      console.log(`InnerTube ${client.name}: no caption tracks`);
     } catch (e) {
       console.log(
         `InnerTube ${client.name} failed: ${e instanceof Error ? e.message : e}`
@@ -306,30 +249,88 @@ async function tryInnerTube(
   return null;
 }
 
+// Strategy 2: Scrape YouTube page HTML
+async function tryWebPageScrape(
+  videoId: string
+): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
+  try {
+    const response = await fetch(
+      `https://www.youtube.com/watch?v=${videoId}`,
+      {
+        headers: {
+          "User-Agent": BROWSER_UA,
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      }
+    );
+
+    if (!response.ok) return null;
+
+    const html = await response.text();
+
+    if (html.includes('class="g-recaptcha"')) {
+      console.log("Web scrape: YouTube requires captcha");
+      return null;
+    }
+
+    const startMarker = "var ytInitialPlayerResponse = ";
+    const startIndex = html.indexOf(startMarker);
+    if (startIndex === -1) return null;
+
+    const jsonStart = html.indexOf("{", startIndex);
+    if (jsonStart === -1) return null;
+
+    let depth = 0;
+    let endIndex = -1;
+    for (let i = jsonStart; i < html.length; i++) {
+      if (html[i] === "{") depth++;
+      else if (html[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          endIndex = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (endIndex === -1) return null;
+
+    const jsonStr = html.substring(jsonStart, endIndex);
+
+    const playerData = JSON.parse(jsonStr);
+    const tracks =
+      playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+    if (Array.isArray(tracks) && tracks.length > 0) {
+      const title =
+        playerData?.videoDetails?.title ||
+        playerData?.microformat?.playerMicroformatRenderer?.title?.simpleText ||
+        `Video ${videoId}`;
+
+      console.log(
+        `Web scrape found ${tracks.length} caption tracks for ${videoId}`
+      );
+      return { tracks, title };
+    }
+
+    console.log(`Web scrape: no captions for ${videoId}`);
+    return null;
+  } catch (error) {
+    console.log(
+      `Web scrape failed: ${error instanceof Error ? error.message : error}`
+    );
+    return null;
+  }
+}
+
 export async function extractTranscript(
   url: string
 ): Promise<ExtractResponse> {
   const videoId = extractVideoId(url);
 
-  // Strategy 1: Scrape the YouTube page HTML (most reliable)
-  const pageResult = await tryWebPageScrape(videoId);
-  if (pageResult && pageResult.tracks.length > 0) {
-    const selected = selectCaptionTrack(pageResult.tracks);
-    const lang = selected.languageCode || "en";
-
-    try {
-      const xml = await fetchCaptionXml(selected);
-      const transcript = parseXmlTranscript(xml, lang);
-
-      if (transcript && transcript.length > 0) {
-        return { videoId, title: pageResult.title, transcript };
-      }
-    } catch (e) {
-      console.log("Failed to parse captions from web scrape:", (e as Error).message);
-    }
-  }
-
-  // Strategy 2: InnerTube API
+  // Strategy 1: InnerTube API (most reliable, caption URLs work)
   const apiResult = await tryInnerTube(videoId);
   if (apiResult && apiResult.tracks.length > 0) {
     const selected = selectCaptionTrack(apiResult.tracks);
@@ -343,7 +344,29 @@ export async function extractTranscript(
         return { videoId, title: apiResult.title, transcript };
       }
     } catch (e) {
-      console.log("Failed to parse captions from InnerTube:", (e as Error).message);
+      console.log(
+        `InnerTube caption fetch failed: ${(e as Error).message}`
+      );
+    }
+  }
+
+  // Strategy 2: Web page scrape (caption URLs may have IP issues)
+  const pageResult = await tryWebPageScrape(videoId);
+  if (pageResult && pageResult.tracks.length > 0) {
+    const selected = selectCaptionTrack(pageResult.tracks);
+    const lang = selected.languageCode || "en";
+
+    try {
+      const xml = await fetchCaptionXml(selected);
+      const transcript = parseXmlTranscript(xml, lang);
+
+      if (transcript && transcript.length > 0) {
+        return { videoId, title: pageResult.title, transcript };
+      }
+    } catch (e) {
+      console.log(
+        `Web scrape caption fetch failed: ${(e as Error).message}`
+      );
     }
   }
 
