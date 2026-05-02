@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "app/api/extract/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/summarize/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/generate-pdf/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
