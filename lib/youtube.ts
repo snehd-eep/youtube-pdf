@@ -6,8 +6,10 @@ const RE_YOUTUBE =
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)";
 
-const CAPTION_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)";
+const PROXIES = [
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
 
 interface CaptionTrack {
   baseUrl: string;
@@ -125,7 +127,6 @@ function decodeEntities(text: string): string {
 function parseXmlTranscript(xml: string, lang: string): TranscriptEntry[] {
   const results: TranscriptEntry[] = [];
 
-  // srv3 format: <p t="ms" d="ms"><s>word</s>...</p>
   const pRegex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
   let match: RegExpExecArray | null;
   while ((match = pRegex.exec(xml)) !== null) {
@@ -153,7 +154,6 @@ function parseXmlTranscript(xml: string, lang: string): TranscriptEntry[] {
 
   if (results.length > 0) return results;
 
-  // Classic format: <text start="s" dur="s">content</text>
   const textRegex =
     /<text\s+start="([^"]*)"\s+dur="([^"]*)"[^>]*>([^<]*)<\/text>/g;
   while ((match = textRegex.exec(xml)) !== null) {
@@ -174,27 +174,49 @@ async function fetchCaptionXml(track: CaptionTrack): Promise<string> {
     url += (url.includes("?") ? "&" : "?") + "fmt=srv3";
   }
 
-  const response = await fetch(url, {
-    headers: { "User-Agent": CAPTION_UA, Accept: "text/xml,*/*" },
-  });
+  const headers = { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" };
 
-  if (response.ok) {
-    const text = await response.text();
-    if (text.length > 0) return text;
+  const directResponse = await fetch(url, { headers });
+  if (directResponse.ok) {
+    const text = await directResponse.text();
+    if (text.length > 0) {
+      console.log("Caption fetch: direct succeeded");
+      return text;
+    }
   }
 
-  const fallback = await fetch(track.baseUrl, {
-    headers: { "User-Agent": CAPTION_UA },
-  });
-  if (fallback.ok) {
-    const text = await fallback.text();
-    if (text.length > 0) return text;
+  const fallbackUrl = track.baseUrl;
+  const fallbackResponse = await fetch(fallbackUrl, { headers });
+  if (fallbackResponse.ok) {
+    const text = await fallbackResponse.text();
+    if (text.length > 0) {
+      console.log("Caption fetch: fallback (no fmt) succeeded");
+      return text;
+    }
   }
 
-  throw new Error(`Failed to fetch caption XML: ${response.status}`);
+  console.log("Caption fetch: direct returned empty, trying proxies...");
+  for (const makeProxy of PROXIES) {
+    try {
+      const proxyUrl = makeProxy(url);
+      const proxyResponse = await fetch(proxyUrl, {
+        headers: { Accept: "text/xml,*/*" },
+      });
+      if (proxyResponse.ok) {
+        const text = await proxyResponse.text();
+        if (text.length > 0 && text.includes("<")) {
+          console.log(`Caption fetch: proxy succeeded (${text.length} chars)`);
+          return text;
+        }
+      }
+    } catch (e) {
+      console.log(`Caption fetch: proxy failed: ${(e as Error).message}`);
+    }
+  }
+
+  throw new Error("Failed to fetch caption XML from all methods");
 }
 
-// Strategy 1: InnerTube API
 async function tryInnerTube(
   videoId: string
 ): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
@@ -249,7 +271,56 @@ async function tryInnerTube(
   return null;
 }
 
-// Strategy 2: Scrape YouTube page HTML
+async function tryInnerTubeViaProxy(
+  videoId: string
+): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
+  for (const makeProxy of PROXIES) {
+    try {
+      const proxyUrl = makeProxy(INNERTUBE_URL);
+      for (const client of INNER_TUBE_CLIENTS) {
+        try {
+          const body = JSON.stringify({
+            context: { client: client.client },
+            videoId,
+          });
+
+          const response = await fetch(proxyUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": client.ua,
+              "X-Original-URL": INNERTUBE_URL,
+            },
+            body,
+          });
+
+          if (!response.ok) continue;
+
+          const data = await response.json();
+
+          if (data?.playabilityStatus?.status !== "OK") continue;
+
+          const tracks =
+            data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+          if (Array.isArray(tracks) && tracks.length > 0) {
+            const title = data?.videoDetails?.title || `Video ${videoId}`;
+            console.log(
+              `Proxy+InnerTube ${client.name} found ${tracks.length} caption tracks`
+            );
+            return { tracks, title };
+          }
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 async function tryWebPageScrape(
   videoId: string
 ): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
@@ -325,15 +396,88 @@ async function tryWebPageScrape(
   }
 }
 
+async function tryWebPageScrapeViaProxy(
+  videoId: string
+): Promise<{ tracks: CaptionTrack[]; title: string } | null> {
+  const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+  for (const makeProxy of PROXIES) {
+    try {
+      const proxyUrl = makeProxy(youtubeUrl);
+      const response = await fetch(proxyUrl, {
+        headers: { Accept: "text/html,*/*" },
+      });
+
+      if (!response.ok) continue;
+
+      const html = await response.text();
+
+      const startMarker = "var ytInitialPlayerResponse = ";
+      const startIndex = html.indexOf(startMarker);
+      if (startIndex === -1) continue;
+
+      const jsonStart = html.indexOf("{", startIndex);
+      if (jsonStart === -1) continue;
+
+      let depth = 0;
+      let endIndex = -1;
+      for (let i = jsonStart; i < html.length; i++) {
+        if (html[i] === "{") depth++;
+        else if (html[i] === "}") {
+          depth--;
+          if (depth === 0) {
+            endIndex = i + 1;
+            break;
+          }
+        }
+      }
+
+      if (endIndex === -1) continue;
+
+      const jsonStr = html.substring(jsonStart, endIndex);
+
+      const playerData = JSON.parse(jsonStr);
+      const tracks =
+        playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        const title =
+          playerData?.videoDetails?.title ||
+          playerData?.microformat?.playerMicroformatRenderer?.title?.simpleText ||
+          `Video ${videoId}`;
+
+        console.log(
+          `Proxy+Web scrape found ${tracks.length} caption tracks for ${videoId}`
+        );
+        return { tracks, title };
+      }
+    } catch (e) {
+      console.log(`Proxy+Web scrape failed: ${(e as Error).message}`);
+    }
+  }
+  return null;
+}
+
 export async function extractTranscript(
   url: string
 ): Promise<ExtractResponse> {
   const videoId = extractVideoId(url);
 
-  // Strategy 1: InnerTube API (most reliable, caption URLs work)
-  const apiResult = await tryInnerTube(videoId);
-  if (apiResult && apiResult.tracks.length > 0) {
-    const selected = selectCaptionTrack(apiResult.tracks);
+  type StrategyResult = { tracks: CaptionTrack[]; title: string } | null;
+  type StrategyFn = () => Promise<StrategyResult>;
+
+  const findTrackStrategies: StrategyFn[] = [
+    () => tryInnerTube(videoId),
+    () => tryWebPageScrape(videoId),
+    () => tryInnerTubeViaProxy(videoId),
+    () => tryWebPageScrapeViaProxy(videoId),
+  ];
+
+  for (const strategy of findTrackStrategies) {
+    const result = await strategy();
+    if (!result || result.tracks.length === 0) continue;
+
+    const selected = selectCaptionTrack(result.tracks);
     const lang = selected.languageCode || "en";
 
     try {
@@ -341,32 +485,10 @@ export async function extractTranscript(
       const transcript = parseXmlTranscript(xml, lang);
 
       if (transcript && transcript.length > 0) {
-        return { videoId, title: apiResult.title, transcript };
+        return { videoId, title: result.title, transcript };
       }
     } catch (e) {
-      console.log(
-        `InnerTube caption fetch failed: ${(e as Error).message}`
-      );
-    }
-  }
-
-  // Strategy 2: Web page scrape (caption URLs may have IP issues)
-  const pageResult = await tryWebPageScrape(videoId);
-  if (pageResult && pageResult.tracks.length > 0) {
-    const selected = selectCaptionTrack(pageResult.tracks);
-    const lang = selected.languageCode || "en";
-
-    try {
-      const xml = await fetchCaptionXml(selected);
-      const transcript = parseXmlTranscript(xml, lang);
-
-      if (transcript && transcript.length > 0) {
-        return { videoId, title: pageResult.title, transcript };
-      }
-    } catch (e) {
-      console.log(
-        `Web scrape caption fetch failed: ${(e as Error).message}`
-      );
+      console.log(`Caption fetch failed for strategy: ${(e as Error).message}`);
     }
   }
 
