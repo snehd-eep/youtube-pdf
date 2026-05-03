@@ -1,15 +1,27 @@
-import { MermaidDiagram } from "./types";
+import { MermaidDiagram, DiagramType } from "./types";
 
 const MERMAID_INK_BASE_URL = "https://mermaid.ink/img";
 
+export function detectDiagramType(code: string): DiagramType {
+  const trimmed = code.trim();
+  if (trimmed.startsWith("sequenceDiagram")) return "sequence";
+  if (trimmed.startsWith("classDiagram")) return "class";
+  if (trimmed.startsWith("erDiagram")) return "er";
+  if (trimmed.startsWith("stateDiagram-v2") || trimmed.startsWith("stateDiagram")) return "state";
+  if (trimmed.startsWith("mindmap")) return "mindmap";
+  return "flowchart";
+}
+
 export function encodeMermaidCode(mermaidCode: string): string {
-  const withTheme = injectTheme(mermaidCode);
+  const diagramType = detectDiagramType(mermaidCode);
+  const withTheme = injectTheme(mermaidCode, diagramType);
   const trimmed = withTheme.trim();
   const encoded = Buffer.from(trimmed, "utf-8").toString("base64url");
   return encoded;
 }
 
-function injectTheme(code: string): string {
+function injectTheme(code: string, diagramType: DiagramType): string {
+  if (diagramType !== "flowchart") return code.trim();
   const trimmed = code.trim();
   if (trimmed.startsWith("%%{init:")) {
     return trimmed.replace(
@@ -161,6 +173,9 @@ function generateCleanVariants(code: string): string[] {
 }
 
 function simplifyMermaidCode(code: string): string {
+  const diagramType = detectDiagramType(code);
+  if (diagramType !== "flowchart") return code;
+
   let simplified = code;
 
   const lines = simplified.split("\n");
@@ -241,6 +256,8 @@ export function cleanMermaidCode(code: string): string {
 
   cleaned = cleaned.replace(/^```mermaid\s*/i, "").replace(/\s*```$/m, "");
 
+  const diagramType = detectDiagramType(cleaned);
+
   const lines = cleaned.split("\n");
   const cleanedLines = lines
     .map((line) => line.replace(/\s+$/, ""))
@@ -255,7 +272,19 @@ export function cleanMermaidCode(code: string): string {
   cleaned = cleaned.replace(/[\u201C\u201D]/g, '"');
   cleaned = cleaned.replace(/[\u2018\u2019]/g, "'");
 
-  cleaned = cleaned.replace(/[^\x20-\x7E\n\r\t]/g, "");
+  if (diagramType === "sequence") {
+    cleaned = cleaned.replace(/%%.*$/gm, "");
+  } else if (diagramType === "class") {
+    cleaned = cleaned.replace(/%%.*$/gm, "");
+  } else if (diagramType === "er") {
+    cleaned = cleaned.replace(/%%.*$/gm, "");
+  } else if (diagramType === "state") {
+    cleaned = cleaned.replace(/%%.*$/gm, "");
+  } else if (diagramType === "mindmap") {
+    // mindmap needs proper indentation, don't strip special chars aggressively
+  } else {
+    cleaned = cleaned.replace(/[^\x20-\x7E\n\r\t]/g, "");
+  }
 
   return cleaned;
 }

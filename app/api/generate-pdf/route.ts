@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!mode || (mode !== "normal" && mode !== "system-design" && mode !== "pro")) {
+    if (!mode || (mode !== "normal" && mode !== "system-design" && mode !== "system-design-pro" && mode !== "pro")) {
       return NextResponse.json(
         { error: "Missing or invalid 'mode' field" },
         { status: 400 }

@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import {
-  SummaryResult, isSystemDesignSummary, isProSummary,
-  SystemDesignSummary, ProSummary,
+  SummaryResult, isSystemDesignSummary, isProSummary, isSystemDesignProSummary,
+  SystemDesignSummary, ProSummary, SystemDesignProSummary,
   MermaidDiagram, Tradeoff, ProSection, Definition, Callout, QA,
   TranscriptEntry,
 } from "./types";
@@ -746,15 +746,244 @@ function addQA(doc: jsPDF, qa: QA[], y: number): number {
   return sep(doc, y);
 }
 
+// ─── System Design Pro Mode ────────────────────────────────────────
+function addSDProCoverPage(
+  doc: jsPDF,
+  title: string,
+  date: string,
+  vid: string,
+): number {
+  doc.setFontSize(28);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+  doc.text("SYSTEM DESIGN PRO", PW / 2, 75, { align: "center" });
+
+  doc.setFontSize(20);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(26, 26, 46);
+  const titleLines = doc.splitTextToSize(title, CW);
+  let y = 92;
+  for (const line of titleLines) {
+    doc.text(line, PW / 2, y, { align: "center" });
+    y += 8;
+  }
+  y += 5;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 100, 100);
+  doc.text(`${date}  |  Video ID: ${vid}`, PW / 2, y, { align: "center" });
+  y += 8;
+
+  doc.setDrawColor(GOLD.r, GOLD.g, GOLD.b);
+  doc.setLineWidth(1);
+  doc.line(PW / 2 - 40, y, PW / 2 + 40, y);
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "italic");
+  doc.setTextColor(120, 120, 120);
+  doc.text(
+    "Architecture diagrams, trade-offs & full structured content",
+    PW / 2,
+    y,
+    { align: "center" },
+  );
+
+  doc.addPage();
+  return MG + 5;
+}
+
+function addSDDetectionBanner(
+  doc: jsPDF,
+  isSystemDesign: boolean,
+  videoType: string,
+  y: number,
+): number {
+  y = cpb(doc, y, 28);
+
+  if (isSystemDesign) {
+    doc.setFillColor(219, 234, 254);
+    doc.setDrawColor(59, 130, 246);
+  } else {
+    doc.setFillColor(254, 243, 224);
+    doc.setDrawColor(217, 119, 6);
+  }
+  doc.setLineWidth(0.5);
+  doc.roundedRect(MG, y, CW, 22, 3, 3, "FD");
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  if (isSystemDesign) {
+    doc.setTextColor(30, 64, 175);
+    doc.text("System Design Video Detected", MG + 6, y + 6);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(51, 51, 51);
+    doc.text("Generating architecture diagrams, sequence flows, and trade-off analysis.", MG + 6, y + 13);
+  } else {
+    doc.setTextColor(146, 64, 14);
+    const displayType = videoType === "tutorial" ? "Tutorial" : videoType === "talk" ? "Talk/Presentation" : videoType === "interview" ? "Interview" : "Other";
+    doc.text(`Video classified as: ${displayType}`, MG + 6, y + 6);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(51, 51, 51);
+    doc.text("System design diagrams are not generated for this content type. Full content analysis provided.", MG + 6, y + 13);
+  }
+  y += 28;
+  return y;
+}
+
+function addTableOfContentsWithDiagrams(
+  doc: jsPDF,
+  sections: ProSection[],
+  focusAreas: string[],
+  diagramTitles: string[],
+  y: number,
+): number {
+  y = secHead(doc, "TABLE OF CONTENTS", y, GOLD);
+
+  for (let i = 0; i < sections.length; i++) {
+    y = cpb(doc, y, LH + 2);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(51, 51, 51);
+    doc.text(`${i + 1}. ${sections[i].heading}`, MG + 2, y);
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text(
+      `${sections[i].startTime} - ${sections[i].endTime}`,
+      PW - MG,
+      y,
+      { align: "right" },
+    );
+    y += LH + 2;
+  }
+
+  if (diagramTitles.length > 0) {
+    y += 4;
+    y = cpb(doc, y, LH + 4);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(59, 130, 246);
+    doc.text("Diagrams", MG, y);
+    y += LH + 2;
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    for (let i = 0; i < diagramTitles.length; i++) {
+      y = cpb(doc, y, LH);
+      doc.setTextColor(59, 130, 246);
+      doc.text("\u2022", MG + 2, y);
+      doc.setTextColor(51, 51, 51);
+      doc.text(diagramTitles[i], MG + 8, y);
+      y += LH;
+    }
+  }
+
+  y += 4;
+
+  if (focusAreas.length > 0) {
+    y = cpb(doc, y, LH + 4);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text("Focus Areas", MG, y);
+    y += LH + 2;
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    for (const area of focusAreas) {
+      y = cpb(doc, y, LH);
+      doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+      doc.text("\u2022", MG + 2, y);
+      doc.setTextColor(51, 51, 51);
+      doc.text(area, MG + 8, y);
+      y += LH;
+    }
+  }
+
+  return sep(doc, y);
+}
+
+function addDiagramInline(
+  doc: jsPDF,
+  diagram: MermaidDiagram,
+  imageData: { buffer: Buffer; format: "jpeg" | "png"; width: number; height: number } | undefined,
+  y: number,
+): number {
+  y = cpb(doc, y, 20);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(59, 130, 246);
+  doc.text(diagram.title, MG, y);
+  y += 6;
+
+  if (imageData) {
+    const imgFormat = imageData.format.toUpperCase() as "JPEG" | "PNG";
+    const imgData = `data:image/${imageData.format};base64,${imageData.buffer.toString("base64")}`;
+    const pixelWidth = imageData.width;
+    const pixelHeight = imageData.height;
+    const aspectRatio = pixelHeight / pixelWidth;
+    const maxImgWidth = CW - 10;
+    const maxImgHeight = 100;
+    let imgWidth = maxImgWidth;
+    let imgHeight = imgWidth * aspectRatio;
+    if (imgHeight > maxImgHeight) {
+      imgHeight = maxImgHeight;
+      imgWidth = imgHeight / aspectRatio;
+    }
+    y = cpb(doc, y, imgHeight + 8);
+    const xOffset = MG + (CW - imgWidth) / 2;
+    doc.addImage(imgData, imgFormat, xOffset, y, imgWidth, imgHeight);
+    y += imgHeight + 4;
+  } else {
+    doc.setFontSize(8);
+    doc.setFont("courier", "normal");
+    doc.setTextColor(100, 100, 100);
+    const codeLines = doc.splitTextToSize(diagram.mermaidCode, CW - 8);
+    doc.setFillColor(245, 245, 245);
+    const codeHeight = Math.min(codeLines.length * 3.5 + 8, 50);
+    y = cpb(doc, y, codeHeight);
+    doc.roundedRect(MG, y - 3, CW, codeHeight, 2, 2, "F");
+    let codeY = y + 2;
+    const maxLines = Math.floor((codeHeight - 4) / 3.5);
+    for (let j = 0; j < Math.min(codeLines.length, maxLines); j++) {
+      doc.text(codeLines[j], MG + 4, codeY);
+      codeY += 3.5;
+    }
+    if (codeLines.length > maxLines) {
+      doc.text(`... (${codeLines.length - maxLines} more lines)`, MG + 4, codeY);
+    }
+    y += codeHeight + 4;
+  }
+
+  if (diagram.description) {
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(102, 102, 102);
+    const descLines = doc.splitTextToSize(diagram.description, CW);
+    for (const line of descLines) {
+      y = cpb(doc, y, LHSM);
+      doc.text(line, MG, y);
+      y += LHSM;
+    }
+  }
+
+  y += SGAP;
+  return y;
+}
+
 // ─── Main Export ─────────────────────────────────────────────────
 export async function generatePdf(
   summary: SummaryResult,
-  mode: "normal" | "system-design" | "pro",
+  mode: "normal" | "system-design" | "system-design-pro" | "pro",
   videoId: string,
   transcript?: TranscriptEntry[],
 ): Promise<Buffer> {
   const modeLabel =
-    mode === "pro" ? "Pro" : mode === "system-design" ? "System Design" : "Normal";
+    mode === "pro" ? "Pro" : mode === "system-design-pro" ? "System Design Pro" : mode === "system-design" ? "System Design" : "Normal";
   const date = new Date().toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
@@ -769,7 +998,44 @@ export async function generatePdf(
 
   let y: number;
 
-  if (mode === "pro" && isProSummary(summary)) {
+  if (mode === "system-design-pro" && isSystemDesignProSummary(summary)) {
+    const sdpro = summary as SystemDesignProSummary;
+
+    const diagramTitles = sdpro.diagrams.map((d) => d.title);
+    const imageMap = sdpro.diagrams.length > 0 ? await fetchDiagramImages(sdpro.diagrams) : new Map();
+
+    y = addSDProCoverPage(doc, sdpro.title, date, videoId);
+    y = addTableOfContentsWithDiagrams(doc, sdpro.sections, sdpro.focusAreas, diagramTitles, y);
+    y = addSDDetectionBanner(doc, sdpro.isSystemDesign, sdpro.videoType, y);
+    y = addOverview(doc, sdpro.overview, y);
+    y = addGist(doc, sdpro.gist, y, true);
+    y = addSummary(doc, sdpro.summary, y);
+
+    y = addProSections(doc, sdpro.sections, transcript || [], y);
+
+    if (sdpro.diagrams.length > 0 && sdpro.isSystemDesign) {
+      y = secHead(doc, "ARCHITECTURE DIAGRAMS", y);
+      for (let i = 0; i < sdpro.diagrams.length; i++) {
+        const diagram = sdpro.diagrams[i];
+        const imgData = imageMap.get(diagram.title) || undefined;
+        if (imgData) {
+          imageMap.set(diagram.title, imgData);
+        }
+        y = addDiagramInline(doc, diagram, imageMap.get(diagram.title) as { buffer: Buffer; format: "jpeg" | "png"; width: number; height: number } | undefined, y);
+      }
+    }
+
+    y = addDefinitions(doc, sdpro.definitions, y);
+    y = addCallouts(doc, sdpro.callouts, y);
+
+    if (sdpro.tradeoffs.length > 0) {
+      y = addTradeoffs(doc, sdpro.tradeoffs, y);
+    }
+
+    y = addQA(doc, sdpro.qa, y);
+    y = addTimestamps(doc, sdpro.timestamps, y);
+    addTakeaways(doc, sdpro.keyTakeaways, y);
+  } else if (mode === "pro" && isProSummary(summary)) {
     const pro = summary as ProSummary;
 
     y = addProCoverPage(doc, pro.title, date, videoId);

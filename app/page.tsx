@@ -6,11 +6,14 @@ import { UrlInput } from "@/components/UrlInput";
 import { ModeSelector } from "@/components/ModeSelector";
 import { ProcessingStatus } from "@/components/ProcessingStatus";
 import { PdfPreview } from "@/components/PdfPreview";
+import { PaymentModal } from "@/components/PaymentModal";
+import { PaymentProvider, usePayment } from "@/components/PaymentProvider";
 import { Mode, ProcessingStep, SummaryResult } from "@/lib/types";
+import { isPaidMode } from "@/lib/pricing";
 
-type AppState = "idle" | "processing" | "done" | "error";
+type AppState = "idle" | "payment" | "processing" | "done" | "error";
 
-export default function Home() {
+function HomeContent() {
   const [url, setUrl] = useState("");
   const [mode, setMode] = useState<Mode>("normal");
   const [state, setState] = useState<AppState>("idle");
@@ -20,7 +23,8 @@ export default function Home() {
   const [pdfBuffer, setPdfBuffer] = useState<ArrayBuffer | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [transcript, setTranscript] = useState<Array<{ offset: number; text: string; duration: number }> | null>(null);
+
+  const payment = usePayment();
 
   const initialSteps: ProcessingStep[] = [
     { id: "extract", label: "Extracting transcript from video", status: "pending" },
@@ -59,6 +63,20 @@ export default function Home() {
     if (!regenerate) {
       setUrl(inputUrl);
     }
+
+    if (isPaidMode(mode) && !payment.isPaid(mode as "system-design-pro" | "pro", videoId)) {
+      payment.startPayment(mode as "system-design-pro" | "pro", videoId);
+      setState("payment");
+      return;
+    }
+
+    await runGeneration(inputUrl, videoId, regenerate);
+  };
+
+  const runGeneration = async (inputUrl: string, videoId: string, regenerate = false) => {
+    if (!regenerate) {
+      setUrl(inputUrl);
+    }
     setError("");
     setSummary(null);
     setPdfBuffer(null);
@@ -81,7 +99,6 @@ export default function Home() {
       }
 
       const { videoId: vidId, title, transcript: extractedTranscript } = await extractRes.json();
-      setTranscript(extractedTranscript);
       updateStep("extract", "done");
 
       updateStep("summarize", "in_progress");
@@ -116,7 +133,7 @@ export default function Home() {
           mode,
           videoId: vidId,
           title,
-          ...(mode === "pro" && transcript ? { transcript } : {}),
+          ...(mode === "pro" || mode === "system-design-pro" ? { transcript: extractedTranscript } : {}),
         }),
       });
 
@@ -141,17 +158,30 @@ export default function Home() {
     }
   };
 
+  const handlePaymentSuccess = () => {
+    payment.completePayment();
+    const videoId = extractVideoId(url);
+    if (videoId) {
+      runGeneration(url, videoId);
+    }
+  };
+
+  const handlePaymentCancel = () => {
+    payment.cancelPayment();
+    setState("idle");
+  };
+
   const handleDownload = () => {
     if (!pdfBuffer) return;
     const blob = new Blob([pdfBuffer], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
+    const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
+    a.href = downloadUrl;
     a.download = `${summary?.title || "video"}-${mode}.pdf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(downloadUrl);
   };
 
   const handleReset = () => {
@@ -163,7 +193,6 @@ export default function Home() {
     setPdfBuffer(null);
     setFromCache(false);
     setIsRegenerating(false);
-    setTranscript(null);
   };
 
   return (
@@ -205,11 +234,32 @@ export default function Home() {
                     </svg>
                     <div>
                       <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        System Design Mode
+                        System Design — Basic
                       </h4>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                        Best for architecture, design, and engineering videos. Generates
-                        Mermaid diagrams, trade-offs analysis, and detailed system breakdowns.
+                        Best for architecture and engineering videos. Generates
+                        flowchart diagrams, trade-offs analysis, and system breakdowns.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {mode === "system-design-pro" && (
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex gap-3">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                    </svg>
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                        System Design Pro
+                      </h4>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                        Auto-detects system design videos and generates architecture,
+                        sequence, class, ER, and state diagrams tailored to the content.
+                        Full video content as a structured document with sections, definitions,
+                        Q&amp;A, and callouts.
                       </p>
                     </div>
                   </div>
@@ -280,6 +330,15 @@ export default function Home() {
             </div>
           )}
 
+          {state === "payment" && payment.pendingMode && payment.pendingVideoId && (
+            <PaymentModal
+              mode={payment.pendingMode}
+              videoId={payment.pendingVideoId}
+              onSuccess={handlePaymentSuccess}
+              onCancel={handlePaymentCancel}
+            />
+          )}
+
           {state === "processing" && (
             <div className="space-y-6">
               <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
@@ -307,7 +366,7 @@ export default function Home() {
                       {url}
                     </p>
                     <p className="text-xs text-indigo-600 dark:text-indigo-400">
-                      Mode: {mode === "system-design" ? "System Design" : mode === "pro" ? "Pro" : "Normal"}
+                      Mode: {mode === "system-design-pro" ? "System Design Pro" : mode === "system-design" ? "System Design" : mode === "pro" ? "Pro" : "Normal"}
                     </p>
                   </div>
                 </div>
@@ -360,7 +419,8 @@ export default function Home() {
                     }`}>
                       {error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
                         ? "Rate limit reached"
-                        : "Something went wrong"}
+                        : "Something went wrong"
+                      }
                     </h3>
                     <p className={`text-sm mt-1 ${
                       error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
@@ -433,5 +493,13 @@ export default function Home() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <PaymentProvider>
+      <HomeContent />
+    </PaymentProvider>
   );
 }

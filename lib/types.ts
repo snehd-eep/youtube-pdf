@@ -1,4 +1,16 @@
-export type Mode = "normal" | "system-design" | "pro";
+export type Mode = "normal" | "system-design" | "system-design-pro" | "pro";
+
+export type DiagramType = "flowchart" | "sequence" | "class" | "er" | "state" | "mindmap";
+
+export type PaymentState = "idle" | "modal_open" | "processing" | "success" | "error";
+
+export interface PricingInfo {
+  mode: Mode;
+  price: number;
+  label: string;
+  isFree: boolean;
+  currency?: string;
+}
 
 export interface TranscriptEntry {
   text: string;
@@ -23,6 +35,7 @@ export interface MermaidDiagram {
   title: string;
   mermaidCode: string;
   description: string;
+  diagramType?: DiagramType;
 }
 
 export interface ProSection {
@@ -80,18 +93,42 @@ export interface ProSummary {
   qa: QA[];
 }
 
-export type SummaryResult = NormalSummary | SystemDesignSummary | ProSummary;
+export interface SystemDesignProSummary {
+  title: string;
+  summary: string;
+  timestamps: TimestampEntry[];
+  keyTakeaways: string[];
+  gist: string;
+  sections: ProSection[];
+  overview: string;
+  focusAreas: string[];
+  definitions: Definition[];
+  callouts: Callout[];
+  qa: QA[];
+  diagrams: MermaidDiagram[];
+  tradeoffs: Tradeoff[];
+  isSystemDesign: boolean;
+  videoType: "system-design" | "tutorial" | "talk" | "interview" | "other";
+}
+
+export type SummaryResult = NormalSummary | SystemDesignSummary | ProSummary | SystemDesignProSummary;
 
 export function isSystemDesignSummary(
   result: SummaryResult
 ): result is SystemDesignSummary {
-  return "diagrams" in result;
+  return "diagrams" in result && !("sections" in result);
 }
 
 export function isProSummary(
   result: SummaryResult
 ): result is ProSummary {
-  return "sections" in result;
+  return "sections" in result && !("diagrams" in result);
+}
+
+export function isSystemDesignProSummary(
+  result: SummaryResult
+): result is SystemDesignProSummary {
+  return "diagrams" in result && "sections" in result;
 }
 
 export interface ExtractRequest {

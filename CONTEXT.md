@@ -1,6 +1,6 @@
 # yt2pdf — Project Context Cache
 
-> **Last updated**: v1.0.0 kickoff
+> **Last updated**: v1.1.0
 > **Purpose**: Single-file reference for the entire project state. Update when making significant changes.
 
 ---
@@ -8,11 +8,12 @@
 ## Architecture Overview
 
 ```
-User → page.tsx (state machine)
+User → page.tsx (state machine, wrapped in PaymentProvider)
   ├── /api/extract      → lib/youtube.ts   → transcript
-  ├── /api/summarize    → lib/gemini.ts     → summary (normal | system-design | pro)
+  ├── /api/summarize    → lib/gemini.ts     → summary (normal | system-design | system-design-pro | pro)
   └── /api/generate-pdf → lib/pdf-generator.ts → PDF buffer
 
+Payment flow: PaymentModal → PaymentProvider context → localStorage mock
 Caching: lib/kv.ts (Upstash Redis) stores transcript, summary, PDF URL
 Storage:  lib/blob.ts (Vercel Blob) stores generated PDFs
 Proxy:    cf-worker/ (Cloudflare Worker) proxies YouTube API calls for Vercel
@@ -25,82 +26,112 @@ Proxy:    cf-worker/ (Cloudflare Worker) proxies YouTube API calls for Vercel
 ### App Routes (`app/`)
 | File | Lines | Purpose |
 |------|-------|---------|
-| `page.tsx` | ~413 | Main page — state machine: idle→processing→done/error |
+| `page.tsx` | ~514 | Main page — state machine: idle→payment→processing→done/error, PaymentProvider wrapper |
 | `api/extract/route.ts` | ~55 | POST /api/extract — extracts transcript from YouTube URL |
 | `api/summarize/route.ts` | ~86 | POST /api/summarize — calls Gemini with transcript, caches result |
-| `api/generate-pdf/route.ts` | ~67 | POST /api/generate-pdf — generates PDF, stores in Blob, returns buffer |
+| `api/generate-pdf/route.ts` | ~68 | POST /api/generate-pdf — generates PDF, stores in Blob, returns buffer |
 | `api/cache/[videoId]/route.ts` | — | GET cache endpoint |
 
 ### Libraries (`lib/`)
 | File | Lines | Purpose |
 |------|-------|---------|
-| `types.ts` | ~90 | Type definitions: Mode, TranscriptEntry, SummaryResult, etc. |
-| `youtube.ts` | ~370 | YouTube transcript extraction — InnerTube API → web scrape → CF Worker proxy fallback |
-| `gemini.ts` | ~191 | Gemini 2.5 Flash AI client — NORMAL_PROMPT, SYSTEM_DESIGN_PROMPT, summarizeTranscript() |
-| `pdf-generator.ts` | ~402 | jsPDF PDF generation — title, summary, gist, timestamps, diagrams, trade-offs, takeaways |
-| `mermaid.ts` | ~150 | Mermaid diagram rendering via mermaid.ink API (forest theme, base64url encoding) |
-| `kv.ts` | ~80 | Upstash Redis caching — getCached*/setCached* for transcript, summary, PDF URL |
-| `blob.ts` | ~30 | Vercel Blob storage — storePdf(), getPdfUrl() |
+| `types.ts` | ~150 | Type definitions: Mode (4 modes), DiagramType, SystemDesignProSummary, PaymentState, PricingInfo |
+| `pricing.ts` | ~15 | Centralized pricing — PRICING config, isPaidMode() helper |
+| `youtube.ts` | ~370 | YouTube transcript extraction — InnerTube → scrape → CF Worker proxy fallback |
+| `gemini.ts` | ~430 | Gemini 2.5 Flash — NORMAL_PROMPT, SYSTEM_DESIGN_PROMPT, SYSTEM_DESIGN_PRO_PROMPT, PRO_PROMPT |
+| `pdf-generator.ts` | ~1046 | jsPDF generation — Normal, System Design, System Design Pro, Pro layouts |
+| `mermaid.ts` | ~280 | Mermaid rendering — multi-type detection, forest theme for flowcharts, type-aware cleanup |
+| `kv.ts` | ~80 | Upstash Redis caching |
+| `blob.ts` | ~30 | Vercel Blob storage |
 
 ### Components (`components/`)
 | File | Lines | Purpose |
 |------|-------|---------|
 | `Header.tsx` | ~31 | Sticky header with "yt2pdf" branding |
 | `UrlInput.tsx` | ~96 | YouTube URL input form with validation |
-| `ModeSelector.tsx` | ~81 | Two-button toggle: Normal / System Design |
+| `ModeSelector.tsx` | ~190 | 3-card layout: Normal, System Design (Basic/Detailed toggle), Pro (₹5 badge) |
 | `ProcessingStatus.tsx` | ~95 | Step-by-step progress (extract/summarize/generate) |
 | `PdfPreview.tsx` | ~96 | Result display — title, gist, takeaways, download/regenerate buttons |
+| `PaymentModal.tsx` | ~220 | Mock payment modal — card form, processing, success/error states |
+| `PaymentProvider.tsx` | ~75 | React context — payment state, isPaid(), startPayment(), localStorage mock |
 
 ### Cloudflare Worker (`cf-worker/`)
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | CORS proxy for YouTube API calls — only allows youtube.com / youtubei.googleapis.com |
+| `src/index.ts` | CORS proxy for YouTube API calls |
 | `wrangler.toml` | Deployed to `https://yt-proxy.snehd-yt-proxy.workers.dev` |
 
 ---
 
 ## Data Structures
 
-### Mode
+### Mode (v1.1.0)
 ```typescript
-type Mode = "normal" | "system-design" | "pro";
+type Mode = "normal" | "system-design" | "system-design-pro" | "pro";
+type DiagramType = "flowchart" | "sequence" | "class" | "er" | "state" | "mindmap";
 ```
 
-### Current Prompts (as of v0.1.0)
-**NORMAL_PROMPT**: Requests JSON with:
-- `title`, `summary` (2-3 paragraphs), `timestamps` (8-15 entries with time/topic/description)
-- `keyTakeaways` (5-8 items), `gist` (one-liner)
+### Pricing
+| Mode | Price | Free? |
+|------|-------|-------|
+| normal | ₹0 | Yes |
+| system-design | ₹0 | Yes |
+| system-design-pro | ₹5 | No |
+| pro | ₹5 | No |
 
-**SYSTEM_DESIGN_PROMPT**: All of NORMAL plus:
-- `diagrams` (3 Mermaid diagrams: high-level, data flow, component interaction — max 6-8 nodes, <10 lines, `graph TD`/`flowchart TD`)
-- `tradeoffs` (3-6 entries with decision/pros/cons)
+### Prompts (v1.1.0)
+**NORMAL_PROMPT**: title, summary, timestamps (8-15), keyTakeaways (5-8), gist
+
+**SYSTEM_DESIGN_PROMPT** (free): Same as Normal + diagrams (3 flowcharts only, max 6-8 nodes), tradeoffs (3-6)
+
+**SYSTEM_DESIGN_PRO_PROMPT** (paid): Full Pro content + Phase 1 (video type detection: isSystemDesign, videoType) + Phase 2 (sections, definitions, callouts, Q&A, timestamps 15-25, takeaways 8-12) + Phase 3 (if SD: 3-7+ multi-type diagrams with diagramType field + 4-6 tradeoffs; if not SD: no diagrams, general pros/cons)
+
+**PRO_PROMPT** (paid): title, summary (4-5 paragraphs), timestamps (15-25), sections (5-10), overview, focusAreas, definitions, callouts, qa, keyTakeaways (8-12), gist
 
 ---
 
-## PDF Layout (Current — v0.1.0)
+## PDF Layouts (v1.1.0)
 
-- **A4 portrait**, margins 20mm, jsPDF
-- **Page width**: 170mm usable
-- **Fonts**: Helvetica (normal/bold/italic)
-- **Line height**: 5mm
+### Normal mode:
+Title → Executive Summary → Gist (blue box) → Timeline → Key Takeaways
 
-### Sections (Normal mode):
-1. Title — video title, date, mode label, video ID
-2. Executive Summary — multi-paragraph summary text
-3. Gist — one-liner in rounded blue box
-4. Timeline — timestamp entries (time + topic + description), light separator per entry
-5. Key Takeaways — numbered list
+### System Design mode (free):
+Title → Executive Summary → Gist → Timeline → Architecture Diagrams (3 flowcharts) → Design Trade-offs → Key Takeaways
 
-### Sections (System Design mode):
-All of Normal plus:
-6. Architecture Diagrams — mermaid.ink images (max 120mm height, centered), fallback raw code blocks
-7. Design Trade-offs — two-column PROS/CONS layout, green/red coloring
+### System Design Pro mode (paid):
+Cover Page (gold "SYSTEM DESIGN PRO") → TOC (sections + focus areas + diagram titles) → SD Detection Banner → Overview → Gist (gold box) → Executive Summary (4-5 paragraphs) → Sections (with transcript text + key points) → Architecture Diagrams (multi-type: flowchart, sequence, class, ER, state, mindmap) → Key Definitions → Insights & Tips (callouts) → Trade-offs → Q&A → Timeline → Key Takeaways
 
-### Common:
-- Page footer: "Page X of Y" centered
-- Page breaks before major sections
-- SECTION_GAP: 8mm between sections
-- LINE_HEIGHT: 5mm
+If `isSystemDesign === false`: SD Detection Banner shows "Video classified as [type]. Diagrams not generated." and no diagrams section rendered.
+
+### Pro mode (paid):
+Cover Page (gold "PRO") → TOC → Overview → Gist → Executive Summary → Sections (with transcript) → Definitions → Callouts → Q&A → Timeline → Key Takeaways
+
+---
+
+## Payment Flow (Mock)
+
+1. User clicks "Generate PDF" with paid mode (system-design-pro or pro)
+2. `isPaidMode(mode)` returns true
+3. `isPaid(mode, videoId)` checks localStorage for `mockPayment_{mode}_{videoId}`
+4. If not paid: PaymentModal opens with card form (4242 4242 4242 4242 prefilled)
+5. On submit: 2-second simulated delay, stores payment in localStorage (1hr TTL)
+6. On success: modal closes, generation proceeds
+7. Same video in same session: skips payment (localStorage check)
+
+**Not yet implemented**: Real Razorpay integration, authentication, receipt generation, refund flow
+
+---
+
+## Mermaid Multi-type Support (v1.1.0)
+
+- `detectDiagramType(code)`: Returns type based on code prefix
+  - `sequenceDiagram` → sequence, `classDiagram` → class, `erDiagram` → er, `stateDiagram-v2` → state, `mindmap` → mindmap, default → flowchart
+- `injectTheme()`: Only adds `%%{init: {'theme': 'forest'}}%%` for flowcharts (breaks other types)
+- `cleanMermaidCode()`: Type-aware cleanup
+  - sequence/class/er/state: Strip `%%` comments, preserve syntax
+  - mindmap: Preserve indentation
+  - flowchart: Full cleanup (smart quotes, special chars)
+- `simplifyMermaidCode()`: Only applies node reduction (max 8) for flowcharts
 
 ---
 
@@ -112,32 +143,7 @@ All of Normal plus:
 | **Cloudflare Worker** | YouTube API proxy for Vercel | `https://yt-proxy.snehd-yt-proxy.workers.dev` |
 | **Upstash Redis** | Caching (transcript 7d, summary 7d, PDF URL 30d) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
 | **Vercel Blob** | PDF storage | `BLOB_READ_WRITE_TOKEN` |
-| **mermaid.ink** | Mermaid diagram rendering | Free API, returns JPEG, forest theme |
-
----
-
-## Transcript Extraction Strategy (`lib/youtube.ts`)
-
-Order of strategies:
-1. **Direct InnerTube API** (ANDROID client v20.10.38) — works locally
-2. **Direct web page scrape** — works locally
-3. **CF Worker proxy → InnerTube API** — works on Vercel (cloud IPs get LOGIN_REQUIRED)
-4. **CF Worker proxy → web page scrape** — fallback
-
-Caption XML fetch:
-1. **Direct fetch** (with User-Agent) — works locally
-2. **CF Worker proxy fetch** — works on Vercel
-
-`YT_PROXY_URL` env var defaults to `https://yt-proxy.snehd-yt-proxy.workers.dev`
-
----
-
-## Deployment
-
-- **Vercel**: `https://youtube-pdf.vercel.app/`
-- **GitHub**: `https://github.com/snehd-eep/youtube-pdf.git`
-- **CF Worker**: `https://yt-proxy.snehd-yt-proxy.workers.dev`
-- **vercel.json**: maxDuration 30s (extract), 60s (summarize, generate-pdf)
+| **mermaid.ink** | Mermaid diagram rendering | Free API, returns JPEG, forest theme for flowcharts |
 
 ---
 
@@ -148,14 +154,13 @@ Caption XML fetch:
 | Initial | Next.js + TypeScript + Tailwind | Full-stack MVP |
 | Initial | jsPDF over pdfmake | pdfmake TS issues in serverless |
 | Initial | Gemini 2.5 Flash over 2.0 Flash | 2.0 has 0 free quota |
-| v0.1 | mermaid.ink JPEG with base64url encoding | PNG endpoint returns 404, base64 has +/= issues |
+| v0.1 | mermaid.ink JPEG with base64url encoding | PNG endpoint returns 404 |
 | v0.1 | mermaid forest theme + cleanMermaidCode() | Better visuals, handles complex syntax |
-| v0.1 | @upstash/redis over @vercel/kv | Vercel KV deprecated |
-| v0.1 | youtube-transcript npm removed | Fails on Vercel (cloud IPs) |
-| v0.1 | InnerTube API + web scrape + CF Worker proxy | YouTube blocks cloud IPs; CF Worker routes through Cloudflare edge |
-| v0.1 | AbortSignal.timeout on all HTTP calls | Prevented Vercel function timeouts |
-| v0.1 | corsproxy.io as caption fallback | Returned 429 on YouTube pages, abandoned |
 | v1.0 | Pro mode added | Full video content as structured PDF document |
+| v1.1 | System Design Pro mode | Multi-type diagrams (flowchart, sequence, class, ER, state, mindmap) |
+| v1.1 | Mock payment flow | PaymentModal with localStorage, no real Razorpay yet |
+| v1.1 | 4-mode pricing | Normal (Free), SD Basic (Free), SD Pro (₹5), Pro (₹5) |
+| v1.1 | Diagram type detection | mermaid.ts detects type from code prefix, theme only for flowcharts |
 
 ---
 

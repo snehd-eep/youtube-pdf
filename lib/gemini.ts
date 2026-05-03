@@ -148,6 +148,100 @@ CRITICAL RULES — YOU MUST FOLLOW ALL OF THESE:
 Transcript:
 `;
 
+export const SYSTEM_DESIGN_PRO_PROMPT = `You are an expert system design educator and technical architect. Your task is to transform a YouTube video transcript into a comprehensive, structured document with architecture diagrams and detailed analysis.
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no explanation.
+
+The JSON must follow this exact structure:
+{
+  "title": "inferred video title",
+  "summary": "A comprehensive 4-5 paragraph summary that covers ALL major topics discussed in the video. Do not omit any significant point.",
+  "timestamps": [
+    { "time": "MM:SS", "topic": "Specific topic name", "description": "A detailed 2-3 sentence description of what is discussed at this timestamp" }
+  ],
+  "sections": [
+    {
+      "heading": "Clear section heading that captures the topic",
+      "startTime": "MM:SS",
+      "endTime": "MM:SS",
+      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"]
+    }
+  ],
+  "overview": "2-3 sentences describing what this video is generally about — the big picture themes and who would benefit from watching it",
+  "focusAreas": ["Main theme or topic 1", "Main theme or topic 2", "Main theme or topic 3"],
+  "definitions": [
+    { "term": "Technical term or jargon", "explanation": "Clear, concise explanation of what this term means in the context of the video" }
+  ],
+  "callouts": [
+    { "type": "insight", "title": "Important insight", "content": "The full explanation of this insight from the video" }
+  ],
+  "qa": [
+    { "question": "A question this video section answers", "answer": "The complete answer based on the video content" }
+  ],
+  "diagrams": [
+    {
+      "title": "Diagram title",
+      "mermaidCode": "valid mermaid.js syntax",
+      "description": "What this diagram illustrates",
+      "diagramType": "flowchart|sequence|class|er|state|mindmap"
+    }
+  ],
+  "tradeoffs": [
+    { "decision": "The design decision made", "pros": ["advantage 1", "advantage 2"], "cons": ["disadvantage 1", "disadvantage 2"] }
+  ],
+  "isSystemDesign": true,
+  "videoType": "system-design|tutorial|talk|interview|other",
+  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3", "takeaway 4", "takeaway 5", "takeaway 6", "takeaway 7", "takeaway 8"],
+  "gist": "One-line essence of the entire video"
+}
+
+PHASE 1 — ANALYZE THE VIDEO:
+Determine whether this video is primarily about system design/architecture. Set:
+- isSystemDesign: true if the video discusses system architecture, design patterns, distributed systems, databases, scalability, or infrastructure design. false otherwise.
+- videoType: one of "system-design", "tutorial", "talk", "interview", "other"
+
+PHASE 2 — ALWAYS GENERATE (regardless of video type):
+1. SECTIONS: Divide the video into 5-10 meaningful sections with headings, time ranges, and key points.
+2. TIMESTAMPS: 15-25 entries with detailed descriptions.
+3. DEFINITIONS: 8-20 technical terms with clear explanations.
+4. CALLOUTS: 5-10 notable points (insight/warning/tip).
+5. Q&A: 6-10 questions the video answers.
+6. FOCUS AREAS: 3-6 main themes.
+7. OVERVIEW: 2-3 sentences about the video.
+8. KEY TAKEAWAYS: 8-12 items.
+9. SUMMARY: 4-5 comprehensive paragraphs.
+10. DO NOT SUMMARIZE AWAY CONTENT. Every concept should appear somewhere.
+
+PHASE 3 — DIAGRAMS AND TRADE-OFFS:
+If isSystemDesign is true, generate 3-7 diagrams using DIFFERENT diagram types appropriate to the content. Each diagram MUST have a "diagramType" field. Use these Mermaid.js diagram types:
+
+- flowchart TD or flowchart LR — for architecture overviews, component relationships, data pipelines
+  Rules: Node IDs as single letters A-J, descriptive labels in quotes, max 10 nodes, no subgraphs, no classDef, no style directives
+
+- sequenceDiagram — for request/response flows, API interactions, protocol sequences
+  Rules: Use "participant" declarations, max 8 participants, use ->> (solid) and -->> (dashed), use alt/else for conditionals, no "Note over" for long text
+
+- classDiagram — for data models, entity relationships, class hierarchies
+  Rules: Use PascalCase for class names, <|-- for inheritance, *-- for composition, --> for association, include 3-6 attributes per class
+
+- erDiagram — for database schemas, entity-relationship models
+  Rules: Use ||--o{ for one-to-many, ||--|| for one-to-one, include key attributes, max 6 entities
+
+- stateDiagram-v2 — for state machines, lifecycle flows, process states
+  Rules: Use [*] --> for initial state, include state transitions with labels, max 8 states
+
+- mindmap — for concept maps, topic hierarchies, brainstorming relationships
+  Rules: Use ((root topic)) format, max 3 levels deep, max 15 nodes total
+
+Choose diagram types that best illustrate the specific system being discussed. A load balancer topic might use flowchart + sequence, a database topic might use erDiagram + classDiagram, etc.
+
+If isSystemDesign is false, set diagrams to an empty array and generate tradeoffs as general pros/cons of the approach/tools discussed (3-4 items).
+
+ALWAYS generate 4-6 tradeoffs with meaningful pros and cons.
+
+Transcript:
+`;
+
 export function formatTranscript(transcript: TranscriptEntry[]): string {
   return transcript
     .map((entry) => {
@@ -243,6 +337,44 @@ function normalizeProSummary(parsed: Record<string, unknown>): void {
   parsed.keyTakeaways = (parsed.keyTakeaways as unknown[]).map((t: unknown) => String(t));
 }
 
+function normalizeSystemDesignProSummary(parsed: Record<string, unknown>): void {
+  normalizeProSummary(parsed);
+
+  if (!Array.isArray(parsed.diagrams)) parsed.diagrams = [];
+  if (!Array.isArray(parsed.tradeoffs)) parsed.tradeoffs = [];
+  if (typeof parsed.isSystemDesign !== "boolean") parsed.isSystemDesign = true;
+  const validVideoTypes = ["system-design", "tutorial", "talk", "interview", "other"] as const;
+  if (!validVideoTypes.includes(parsed.videoType as typeof validVideoTypes[number])) {
+    parsed.videoType = "other";
+  }
+
+  parsed.diagrams = (parsed.diagrams as unknown[]).map(
+    (item) => {
+      const d = item as Record<string, unknown>;
+      const validTypes = ["flowchart", "sequence", "class", "er", "state", "mindmap"];
+      let diagramType = (d.diagramType as string) || "flowchart";
+      if (!validTypes.includes(diagramType)) diagramType = "flowchart";
+      return {
+        title: (d.title as string) || "Untitled Diagram",
+        mermaidCode: ((d.mermaidCode as string) || "").replace(/\\n/g, "\n"),
+        description: (d.description as string) || "",
+        diagramType,
+      };
+    }
+  );
+
+  parsed.tradeoffs = (parsed.tradeoffs as unknown[]).map(
+    (item) => {
+      const t = item as Record<string, unknown>;
+      return {
+        decision: (t.decision as string) || "Design decision",
+        pros: Array.isArray(t.pros) ? (t.pros as unknown[]).map((p: unknown) => String(p)) : [],
+        cons: Array.isArray(t.cons) ? (t.cons as unknown[]).map((c: unknown) => String(c)) : [],
+      };
+    }
+  );
+}
+
 export async function summarizeTranscript(
   transcript: TranscriptEntry[],
   mode: Mode,
@@ -255,6 +387,7 @@ export async function summarizeTranscript(
   let prompt: string;
   if (mode === "normal") prompt = NORMAL_PROMPT;
   else if (mode === "system-design") prompt = SYSTEM_DESIGN_PROMPT;
+  else if (mode === "system-design-pro") prompt = SYSTEM_DESIGN_PRO_PROMPT;
   else prompt = PRO_PROMPT;
 
   const formattedTranscript = formatTranscript(transcript);
@@ -300,6 +433,10 @@ ${formattedTranscript}`;
 
       if (mode === "pro") {
         normalizeProSummary(parsed);
+      }
+
+      if (mode === "system-design-pro") {
+        normalizeSystemDesignProSummary(parsed);
       }
 
       return parsed as SummaryResult;
