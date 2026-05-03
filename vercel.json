@@ -4,10 +4,16 @@
       "maxDuration": 30
     },
     "app/api/summarize/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 120
     },
     "app/api/generate-pdf/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 120
+    },
+    "app/api/create-order/route.ts": {
+      "maxDuration": 10
+    },
+    "app/api/verify-payment/route.ts": {
+      "maxDuration": 10
     }
   }
 }
