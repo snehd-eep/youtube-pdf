@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyPayment } from "@/lib/razorpay";
+import crypto from "crypto";
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,11 +13,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isValid = verifyPayment(
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature
-    );
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
+
+    const expectedSignature = crypto
+      .createHmac("sha256", keySecret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest("hex");
+
+    const isValid = expectedSignature === razorpay_signature;
 
     if (!isValid) {
       return NextResponse.json(
