@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const receipt = `yt2pdf_${mode}_${videoId.slice(0, 20)}_${Date.now()}`;
+    const receipt = `yt2pdf_${Date.now()}`;
 
     const auth = Buffer.from(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`).toString("base64");
 
