@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -13,10 +15,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const keySecret = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
-
     const expectedSignature = crypto
-      .createHmac("sha256", keySecret)
+      .createHmac("sha256", RAZORPAY_KEY_SECRET)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest("hex");
 
