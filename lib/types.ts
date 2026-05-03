@@ -2,16 +2,6 @@ export type Mode = "normal" | "system-design" | "system-design-pro" | "pro";
 
 export type DiagramType = "flowchart" | "sequence" | "class" | "er" | "state" | "mindmap";
 
-export type PaymentState = "idle" | "modal_open" | "processing" | "success" | "error";
-
-export interface PricingInfo {
-  mode: Mode;
-  price: number;
-  label: string;
-  isFree: boolean;
-  currency?: string;
-}
-
 export interface TranscriptEntry {
   text: string;
   duration: number;

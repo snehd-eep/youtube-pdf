@@ -1,5 +1,8 @@
 "use client";
 
+import { Mode } from "@/lib/types";
+import { PRICING, isPaidMode } from "@/lib/pricing";
+
 interface PdfPreviewProps {
   summary: {
     title: string;
@@ -7,7 +10,10 @@ interface PdfPreviewProps {
     keyTakeaways: string[];
   } | null;
   pdfBuffer: ArrayBuffer | null;
+  mode: Mode;
+  paymentVerified: boolean;
   onDownload: () => void;
+  onPayAndDownload: () => void;
   onReset: () => void;
   onRegenerate: () => void;
   isRegenerating: boolean;
@@ -16,12 +22,17 @@ interface PdfPreviewProps {
 export function PdfPreview({
   summary,
   pdfBuffer,
+  mode,
+  paymentVerified,
   onDownload,
+  onPayAndDownload,
   onReset,
   onRegenerate,
   isRegenerating,
 }: PdfPreviewProps) {
   if (!pdfBuffer && !summary) return null;
+
+  const needsPayment = isPaidMode(mode) && !paymentVerified;
 
   return (
     <div className="w-full space-y-6 animate-slide-in">
@@ -57,15 +68,27 @@ export function PdfPreview({
 
       {pdfBuffer && (
         <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            onClick={onDownload}
-            className="flex-1 px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium transition-all flex items-center justify-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12M12 16.5V3" />
-            </svg>
-            Download PDF
-          </button>
+          {needsPayment ? (
+            <button
+              onClick={onPayAndDownload}
+              className="flex-1 px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium transition-all flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+              Download Full PDF — {PRICING[mode].label}
+            </button>
+          ) : (
+            <button
+              onClick={onDownload}
+              className="flex-1 px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-medium transition-all flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12M12 16.5V3" />
+              </svg>
+              Download PDF
+            </button>
+          )}
           <button
             onClick={onRegenerate}
             disabled={isRegenerating}

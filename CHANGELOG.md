@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-05-03
+
+### Added
+- **Razorpay payment integration** — Modal overlay checkout for paid modes (System Design Pro & Pro)
+  - `POST /api/create-order` — Creates Razorpay order server-side
+  - `POST /api/verify-payment` — Verifies Razorpay payment signature server-side
+  - `lib/razorpay.ts` — Server helper: `createOrder()`, `verifyPayment()`
+  - Payment flows on **download**, not on generate (no refund complexity)
+  - Free preview (title, gist, takeaways) always visible; payment gates PDF download
+  - localStorage stores verified payment for same session re-downloads (24hr TTL)
+- **Translated captions fallback** (`&tlang=en`) — When non-English captions are the only
+  available track, YouTube is asked to translate them to English. Retries via direct
+  fetch then Cloudflare Worker proxy.
+- **Better "no captions" error UI** — Amber warning box specifically for caption-less
+  videos, distinct from generic red error box
+
+### Changed
+- `PaymentModal.tsx` — Completely rewritten: no more mock card form. Opens Razorpay
+  checkout modal overlay. Handles creating order, checkout, verification, success/error.
+- `PaymentProvider.tsx` — Simplified: `openPayment()`, `closePayment()`, `isPaid()` only.
+  No mock payment logic.
+- `PdfPreview.tsx` — New props: `mode`, `paymentVerified`, `onPayAndDownload`. Shows
+  "Download Full PDF — ₹5" (amber, with lock icon) for unpaid paid modes, normal
+  "Download PDF" (indigo) for free/paid modes.
+- `page.tsx` — Payment no longer blocks generation. Paid modes generate for free,
+  payment is prompted on download. Removed `"payment"` from AppState.
+- `lib/pricing.ts` — `PricingInfo` moved from `types.ts` to `pricing.ts`, added
+  `amountPaise` field (500 for ₹5 modes).
+- `lib/youtube.ts` — `fetchCaptionXml()` now tries `&tlang=en` translation fallback
+  for non-English caption tracks before giving up.
+
+### Removed
+- Mock payment card form (replaced by Razorpay checkout)
+- `PaymentState` type from `types.ts` (no longer needed)
+
 ## [1.1.0] - 2025-05-03
 
 ### Added

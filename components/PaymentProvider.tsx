@@ -3,12 +3,12 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 
 interface PaymentContextType {
-  paymentState: "idle" | "modal_open" | "processing" | "success" | "error";
+  showPaymentModal: boolean;
   pendingMode: "system-design-pro" | "pro" | null;
   pendingVideoId: string | null;
-  startPayment: (mode: "system-design-pro" | "pro", videoId: string) => void;
-  completePayment: () => void;
-  cancelPayment: () => void;
+  pendingVideoTitle: string | null;
+  openPayment: (mode: "system-design-pro" | "pro", videoId: string, videoTitle: string) => void;
+  closePayment: () => void;
   isPaid: (mode: "system-design-pro" | "pro", videoId: string) => boolean;
 }
 
@@ -21,31 +21,28 @@ export function usePayment(): PaymentContextType {
 }
 
 export function PaymentProvider({ children }: { children: ReactNode }) {
-  const [paymentState, setPaymentState] = useState<PaymentContextType["paymentState"]>("idle");
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingMode, setPendingMode] = useState<"system-design-pro" | "pro" | null>(null);
   const [pendingVideoId, setPendingVideoId] = useState<string | null>(null);
+  const [pendingVideoTitle, setPendingVideoTitle] = useState<string | null>(null);
 
-  const startPayment = useCallback((mode: "system-design-pro" | "pro", videoId: string) => {
+  const openPayment = useCallback((mode: "system-design-pro" | "pro", videoId: string, videoTitle: string) => {
     setPendingMode(mode);
     setPendingVideoId(videoId);
-    setPaymentState("modal_open");
+    setPendingVideoTitle(videoTitle);
+    setShowPaymentModal(true);
   }, []);
 
-  const completePayment = useCallback(() => {
-    setPaymentState("idle");
+  const closePayment = useCallback(() => {
+    setShowPaymentModal(false);
     setPendingMode(null);
     setPendingVideoId(null);
-  }, []);
-
-  const cancelPayment = useCallback(() => {
-    setPaymentState("idle");
-    setPendingMode(null);
-    setPendingVideoId(null);
+    setPendingVideoTitle(null);
   }, []);
 
   const isPaid = useCallback((mode: "system-design-pro" | "pro", videoId: string): boolean => {
     if (typeof window === "undefined") return false;
-    const key = `mockPayment_${mode}_${videoId}`;
+    const key = `payment_${mode}_${videoId}`;
     try {
       const stored = localStorage.getItem(key);
       if (!stored) return false;
@@ -59,12 +56,12 @@ export function PaymentProvider({ children }: { children: ReactNode }) {
   return (
     <PaymentContext.Provider
       value={{
-        paymentState,
+        showPaymentModal,
         pendingMode,
         pendingVideoId,
-        startPayment,
-        completePayment,
-        cancelPayment,
+        pendingVideoTitle,
+        openPayment,
+        closePayment,
         isPaid,
       }}
     >

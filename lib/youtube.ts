@@ -407,6 +407,36 @@ async function fetchCaptionXml(track: CaptionTrack): Promise<string> {
     }
   } catch {}
 
+  // 3. If not English, try translating with &tlang=en
+  if (track.languageCode !== "en") {
+    const translatedUrl = url + (url.includes("&") || url.includes("?tlang") ? "&" : "") + "&tlang=en";
+    console.log(`Caption: trying tlang=en translation for ${track.languageCode}`);
+
+    try {
+      const response = await fetch(translatedUrl, {
+        headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (response.ok) {
+        const text = await response.text();
+        if (text.length > 100 && (text.includes("<p") || text.includes("<text"))) {
+          console.log(`Caption: direct tlang=en translation succeeded for ${track.languageCode}`);
+          return text;
+        }
+      }
+    } catch {}
+
+    try {
+      const result = await proxyFetch(translatedUrl, {
+        headers: { Accept: "text/xml,*/*" },
+      });
+      if (result.ok && result.body.length > 100 && (result.body.includes("<p") || result.body.includes("<text"))) {
+        console.log(`Caption: proxy tlang=en translation succeeded for ${track.languageCode}`);
+        return result.body;
+      }
+    } catch {}
+  }
+
   throw new Error("Failed to fetch caption XML");
 }
 

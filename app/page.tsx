@@ -11,7 +11,7 @@ import { PaymentProvider, usePayment } from "@/components/PaymentProvider";
 import { Mode, ProcessingStep, SummaryResult } from "@/lib/types";
 import { isPaidMode } from "@/lib/pricing";
 
-type AppState = "idle" | "payment" | "processing" | "done" | "error";
+type AppState = "idle" | "processing" | "done" | "error";
 
 function HomeContent() {
   const [url, setUrl] = useState("");
@@ -23,6 +23,7 @@ function HomeContent() {
   const [pdfBuffer, setPdfBuffer] = useState<ArrayBuffer | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [paymentVerified, setPaymentVerified] = useState(false);
 
   const payment = usePayment();
 
@@ -64,19 +65,13 @@ function HomeContent() {
       setUrl(inputUrl);
     }
 
-    if (isPaidMode(mode) && !payment.isPaid(mode as "system-design-pro" | "pro", videoId)) {
-      payment.startPayment(mode as "system-design-pro" | "pro", videoId);
-      setState("payment");
-      return;
+    if (isPaidMode(mode)) {
+      const alreadyPaid = payment.isPaid(mode as "system-design-pro" | "pro", videoId);
+      setPaymentVerified(alreadyPaid);
+    } else {
+      setPaymentVerified(true);
     }
 
-    await runGeneration(inputUrl, videoId, regenerate);
-  };
-
-  const runGeneration = async (inputUrl: string, videoId: string, regenerate = false) => {
-    if (!regenerate) {
-      setUrl(inputUrl);
-    }
     setError("");
     setSummary(null);
     setPdfBuffer(null);
@@ -158,21 +153,13 @@ function HomeContent() {
     }
   };
 
-  const handlePaymentSuccess = () => {
-    payment.completePayment();
-    const videoId = extractVideoId(url);
-    if (videoId) {
-      runGeneration(url, videoId);
-    }
-  };
-
-  const handlePaymentCancel = () => {
-    payment.cancelPayment();
-    setState("idle");
-  };
-
   const handleDownload = () => {
     if (!pdfBuffer) return;
+
+    if (isPaidMode(mode) && !paymentVerified) {
+      return;
+    }
+
     const blob = new Blob([pdfBuffer], { type: "application/pdf" });
     const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -184,6 +171,34 @@ function HomeContent() {
     URL.revokeObjectURL(downloadUrl);
   };
 
+  const handlePayAndDownload = () => {
+    if (!summary) return;
+    const videoId = extractVideoId(url);
+    if (!videoId) return;
+
+    if (payment.isPaid(mode as "system-design-pro" | "pro", videoId)) {
+      setPaymentVerified(true);
+      handleDownload();
+      return;
+    }
+
+    payment.openPayment(
+      mode as "system-design-pro" | "pro",
+      videoId,
+      summary.title
+    );
+  };
+
+  const handlePaymentSuccess = () => {
+    payment.closePayment();
+    setPaymentVerified(true);
+    handleDownload();
+  };
+
+  const handlePaymentCancel = () => {
+    payment.closePayment();
+  };
+
   const handleReset = () => {
     setUrl("");
     setState("idle");
@@ -193,7 +208,12 @@ function HomeContent() {
     setPdfBuffer(null);
     setFromCache(false);
     setIsRegenerating(false);
+    setPaymentVerified(false);
   };
+
+  const isNoCaptionsError = error.toLowerCase().includes("could not extract") ||
+    error.toLowerCase().includes("captions disabled") ||
+    error.toLowerCase().includes("no transcripts");
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -253,13 +273,13 @@ function HomeContent() {
                     </svg>
                     <div>
                       <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        System Design Pro
+                        System Design Pro — ₹5/PDF
                       </h4>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                         Auto-detects system design videos and generates architecture,
                         sequence, class, ER, and state diagrams tailored to the content.
                         Full video content as a structured document with sections, definitions,
-                        Q&amp;A, and callouts.
+                        Q&amp;A, and callouts. Payment required to download PDF.
                       </p>
                     </div>
                   </div>
@@ -274,12 +294,12 @@ function HomeContent() {
                     </svg>
                     <div>
                       <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        Pro Mode
+                        Pro — ₹5/PDF
                       </h4>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                         The entire video content as a structured, book-like PDF. Includes sections,
                         definitions, Q&amp;A, callouts, and full transcript text — nothing is left out.
-                        Processing may take longer due to comprehensive analysis.
+                        Payment required to download PDF.
                       </p>
                     </div>
                   </div>
@@ -328,15 +348,6 @@ function HomeContent() {
                 </div>
               </div>
             </div>
-          )}
-
-          {state === "payment" && payment.pendingMode && payment.pendingVideoId && (
-            <PaymentModal
-              mode={payment.pendingMode}
-              videoId={payment.pendingVideoId}
-              onSuccess={handlePaymentSuccess}
-              onCancel={handlePaymentCancel}
-            />
           )}
 
           {state === "processing" && (
@@ -397,12 +408,18 @@ function HomeContent() {
               </div>
 
               <div className={`p-6 rounded-xl border ${
-                error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                isNoCaptionsError
                   ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
-                  : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                  : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                    ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+                    : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
               }`}>
                 <div className="flex items-start gap-3">
-                  {(error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) ? (
+                  {isNoCaptionsError ? (
+                    <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    </svg>
+                  ) : (error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) ? (
                     <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
                     </svg>
@@ -413,21 +430,28 @@ function HomeContent() {
                   )}
                   <div>
                     <h3 className={`font-semibold ${
-                      error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                      isNoCaptionsError
                         ? "text-amber-800 dark:text-amber-300"
-                        : "text-red-800 dark:text-red-300"
+                        : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                          ? "text-amber-800 dark:text-amber-300"
+                          : "text-red-800 dark:text-red-300"
                     }`}>
-                      {error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
-                        ? "Rate limit reached"
-                        : "Something went wrong"
+                      {isNoCaptionsError
+                        ? "No captions available"
+                        : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                          ? "Rate limit reached"
+                          : "Something went wrong"
                       }
                     </h3>
                     <p className={`text-sm mt-1 ${
-                      error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                      isNoCaptionsError || error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
                         ? "text-amber-700 dark:text-amber-400"
                         : "text-red-600 dark:text-red-400"
                     }`}>
-                      {error}
+                      {isNoCaptionsError
+                        ? "This video doesn't have captions available (not even auto-generated). We can only process videos that have YouTube captions. Try a different video."
+                        : error
+                      }
                     </p>
                     {(error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) && (
                       <p className="text-xs mt-2 text-amber-600 dark:text-amber-500">
@@ -475,7 +499,10 @@ function HomeContent() {
                   keyTakeaways: summary.keyTakeaways,
                 }}
                 pdfBuffer={pdfBuffer}
+                mode={mode}
+                paymentVerified={paymentVerified}
                 onDownload={handleDownload}
+                onPayAndDownload={handlePayAndDownload}
                 onReset={handleReset}
                 onRegenerate={() => handleGenerate(url, true)}
                 isRegenerating={isRegenerating}
@@ -484,6 +511,16 @@ function HomeContent() {
           )}
         </div>
       </main>
+
+      {payment.showPaymentModal && payment.pendingMode && payment.pendingVideoId && (
+        <PaymentModal
+          mode={payment.pendingMode}
+          videoId={payment.pendingVideoId}
+          videoTitle={payment.pendingVideoTitle || summary?.title || "YouTube Video"}
+          onSuccess={handlePaymentSuccess}
+          onCancel={handlePaymentCancel}
+        />
+      )}
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-6">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">

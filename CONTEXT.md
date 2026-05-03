@@ -1,6 +1,6 @@
 # yt2pdf — Project Context Cache
 
-> **Last updated**: v1.1.0
+> **Last updated**: v1.1.1
 > **Purpose**: Single-file reference for the entire project state. Update when making significant changes.
 
 ---
