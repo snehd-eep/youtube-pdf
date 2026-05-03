@@ -1,48 +1,94 @@
 import { jsPDF } from "jspdf";
 import {
-  SummaryResult,
-  isSystemDesignSummary,
-  SystemDesignSummary,
-  MermaidDiagram,
-  Tradeoff,
+  SummaryResult, isSystemDesignSummary, isProSummary,
+  SystemDesignSummary, ProSummary,
+  MermaidDiagram, Tradeoff, ProSection, Definition, Callout, QA,
+  TranscriptEntry,
 } from "./types";
 import { fetchDiagramImages } from "./mermaid";
 
-const PAGE_WIDTH = 210;
-const PAGE_HEIGHT = 297;
-const MARGIN = 20;
-const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN;
-const MAX_Y = PAGE_HEIGHT - MARGIN - 15;
-const LINE_HEIGHT = 5;
-const LINE_HEIGHT_SM = 4.5;
-const PARAGRAPH_GAP = 6;
-const SECTION_GAP = 10;
+// ─── Constants ───────────────────────────────────────────────────
+const PW = 210;
+const PH = 297;
+const MG = 20;
+const CW = PW - 2 * MG;
+const MY = PH - MG - 15;
+const LH = 5;
+const LHSM = 4.5;
+const PGAP = 6;
+const SGAP = 10;
+const GOLD = { r: 180, g: 138, b: 0 };
 
-function checkPageBreak(doc: jsPDF, y: number, needed: number): number {
-  if (y + needed > MAX_Y) {
+// ─── Helpers ─────────────────────────────────────────────────────
+function cpb(doc: jsPDF, y: number, needed: number): number {
+  if (y + needed > MY) {
     doc.addPage();
-    return MARGIN + 5;
+    return MG + 5;
   }
   return y;
 }
 
-function drawSeparator(doc: jsPDF, y: number): number {
-  y = checkPageBreak(doc, y, 12);
+function sep(doc: jsPDF, y: number): number {
+  y = cpb(doc, y, 12);
   doc.setDrawColor(220, 220, 220);
   doc.setLineWidth(0.3);
-  doc.line(MARGIN, y, PAGE_WIDTH - MARGIN, y);
+  doc.line(MG, y, PW - MG, y);
   return y + 8;
 }
 
-function addTitle(doc: jsPDF, title: string, mode: string, date: string, videoId: string): number {
+function secHead(
+  doc: jsPDF,
+  text: string,
+  y: number,
+  clr?: { r: number; g: number; b: number },
+): number {
+  y = cpb(doc, y, 20);
+  y += 2;
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(22, 33, 62);
+  doc.text(text, MG, y);
+  y += 3;
+  const c = clr || { r: 99, g: 102, b: 241 };
+  doc.setDrawColor(c.r, c.g, c.b);
+  doc.setLineWidth(0.8);
+  doc.line(MG, y, MG + 30, y);
+  y += 5;
+  return y;
+}
+
+function parseTimeToMs(time: string): number {
+  const parts = time.split(":");
+  if (parts.length === 2) {
+    const minutes = parseInt(parts[0], 10);
+    const seconds = parseInt(parts[1], 10);
+    return (minutes * 60 + seconds) * 1000;
+  }
+  if (parts.length === 3) {
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+    const seconds = parseInt(parts[2], 10);
+    return (hours * 3600 + minutes * 60 + seconds) * 1000;
+  }
+  return 0;
+}
+
+// ─── Normal / System-Design Mode ─────────────────────────────────
+function addTitle(
+  doc: jsPDF,
+  title: string,
+  mode: string,
+  date: string,
+  videoId: string,
+): number {
   let y = 25;
 
   doc.setFontSize(20);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(26, 26, 46);
-  const titleLines = doc.splitTextToSize(title, CONTENT_WIDTH);
+  const titleLines = doc.splitTextToSize(title, CW);
   for (const line of titleLines) {
-    doc.text(line, MARGIN, y);
+    doc.text(line, MG, y);
     y += 7.5;
   }
   y += 2;
@@ -50,130 +96,124 @@ function addTitle(doc: jsPDF, title: string, mode: string, date: string, videoId
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(120, 120, 120);
-  doc.text(`Generated: ${date}  |  Mode: ${mode}  |  Video ID: ${videoId}`, MARGIN, y);
+  doc.text(`Generated: ${date}  |  Mode: ${mode}  |  Video ID: ${videoId}`, MG, y);
   y += 4;
 
-  return drawSeparator(doc, y);
-}
-
-function addSectionHeader(doc: jsPDF, text: string, y: number): number {
-  y = checkPageBreak(doc, y, 20);
-  y += 2;
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(22, 33, 62);
-  doc.text(text, MARGIN, y);
-  y += 3;
-  doc.setDrawColor(99, 102, 241);
-  doc.setLineWidth(0.8);
-  doc.line(MARGIN, y, MARGIN + 30, y);
-  y += 5;
-  return y;
+  return sep(doc, y);
 }
 
 function addSummary(doc: jsPDF, summary: string, y: number): number {
-  y = addSectionHeader(doc, "EXECUTIVE SUMMARY", y);
+  y = secHead(doc, "EXECUTIVE SUMMARY", y);
 
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(51, 51, 51);
-  const lines = doc.splitTextToSize(summary, CONTENT_WIDTH);
+  const lines = doc.splitTextToSize(summary, CW);
   for (const line of lines) {
-    y = checkPageBreak(doc, y, LINE_HEIGHT + 1);
-    doc.text(line, MARGIN, y);
-    y += LINE_HEIGHT + 0.5;
+    y = cpb(doc, y, LH + 1);
+    doc.text(line, MG, y);
+    y += LH + 0.5;
   }
-  y += PARAGRAPH_GAP;
+  y += PGAP;
 
-  return drawSeparator(doc, y);
+  return sep(doc, y);
 }
 
-function addGist(doc: jsPDF, gist: string, y: number): number {
-  y = addSectionHeader(doc, "GIST", y);
+function addGist(doc: jsPDF, gist: string, y: number, gold?: boolean): number {
+  y = secHead(doc, "GIST", y, gold ? GOLD : undefined);
 
-  doc.setFillColor(238, 242, 255);
-  doc.setDrawColor(99, 102, 241);
+  if (gold) {
+    doc.setFillColor(255, 248, 225);
+    doc.setDrawColor(GOLD.r, GOLD.g, GOLD.b);
+  } else {
+    doc.setFillColor(238, 242, 255);
+    doc.setDrawColor(99, 102, 241);
+  }
   doc.setLineWidth(0.5);
 
   doc.setFontSize(10.5);
   doc.setFont("helvetica", "italic");
-  doc.setTextColor(15, 52, 96);
-  const gistLines = doc.splitTextToSize(`"${gist}"`, CONTENT_WIDTH - 16);
-  const boxHeight = gistLines.length * (LINE_HEIGHT + 1) + 10;
-
-  y = checkPageBreak(doc, y, boxHeight);
-  doc.roundedRect(MARGIN, y - 4, CONTENT_WIDTH, boxHeight, 3, 3, "FD");
-  for (const line of gistLines) {
-    doc.text(line, MARGIN + 8, y + 2);
-    y += LINE_HEIGHT + 1;
+  if (gold) {
+    doc.setTextColor(102, 66, 0);
+  } else {
+    doc.setTextColor(15, 52, 96);
   }
-  y += PARAGRAPH_GAP;
+  const gistLines = doc.splitTextToSize(`"${gist}"`, CW - 16);
+  const boxHeight = gistLines.length * (LH + 1) + 10;
 
-  return drawSeparator(doc, y);
+  y = cpb(doc, y, boxHeight);
+  doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
+  for (const line of gistLines) {
+    doc.text(line, MG + 8, y + 2);
+    y += LH + 1;
+  }
+  y += PGAP;
+
+  return sep(doc, y);
 }
 
 function addTimestamps(
   doc: jsPDF,
   timestamps: { time: string; topic: string; description: string }[],
-  y: number
+  y: number,
 ): number {
-  y = addSectionHeader(doc, "TIMELINE", y);
+  y = secHead(doc, "TIMELINE", y);
 
   for (let i = 0; i < timestamps.length; i++) {
     const ts = timestamps[i];
-    y = checkPageBreak(doc, y, 16);
+    y = cpb(doc, y, 16);
 
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(99, 102, 241);
-    doc.text(ts.time, MARGIN, y);
+    doc.text(ts.time, MG, y);
 
     doc.setFont("helvetica", "bold");
     doc.setTextColor(26, 26, 46);
-    doc.text(ts.topic, MARGIN + 18, y);
-    y += LINE_HEIGHT_SM + 0.5;
+    doc.text(ts.topic, MG + 18, y);
+    y += LHSM + 0.5;
 
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(100, 100, 100);
-    const descLines = doc.splitTextToSize(ts.description, CONTENT_WIDTH - 18);
+    const descLines = doc.splitTextToSize(ts.description, CW - 18);
     for (const line of descLines) {
-      y = checkPageBreak(doc, y, LINE_HEIGHT_SM);
-      doc.text(line, MARGIN + 18, y);
-      y += LINE_HEIGHT_SM;
+      y = cpb(doc, y, LHSM);
+      doc.text(line, MG + 18, y);
+      y += LHSM;
     }
     y += 3;
 
     if (i < timestamps.length - 1) {
       doc.setDrawColor(235, 235, 235);
       doc.setLineWidth(0.2);
-      doc.line(MARGIN + 18, y, PAGE_WIDTH - MARGIN, y);
+      doc.line(MG + 18, y, PW - MG, y);
       y += 3;
     }
   }
   y += 3;
 
-  return drawSeparator(doc, y);
+  return sep(doc, y);
 }
 
 function addDiagrams(
   doc: jsPDF,
   diagrams: MermaidDiagram[],
-  y: number
+  y: number,
 ): Promise<number> {
   return (async () => {
-    y = addSectionHeader(doc, "ARCHITECTURE DIAGRAMS", y);
+    y = secHead(doc, "ARCHITECTURE DIAGRAMS", y);
 
     const imageMap = await fetchDiagramImages(diagrams);
 
     for (let i = 0; i < diagrams.length; i++) {
       const diagram = diagrams[i];
-      y = checkPageBreak(doc, y, 35);
+      y = cpb(doc, y, 35);
 
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(22, 33, 62);
-      doc.text(`${i + 1}. ${diagram.title}`, MARGIN, y);
+      doc.text(`${i + 1}. ${diagram.title}`, MG, y);
       y += 6;
 
       const imageData = imageMap.get(diagram.title);
@@ -185,7 +225,7 @@ function addDiagrams(
         const pixelHeight = imageData.height;
         const aspectRatio = pixelHeight / pixelWidth;
 
-        const maxImgWidth = CONTENT_WIDTH - 10;
+        const maxImgWidth = CW - 10;
         const maxImgHeight = 120;
 
         let imgWidth = maxImgWidth;
@@ -196,27 +236,27 @@ function addDiagrams(
           imgWidth = imgHeight / aspectRatio;
         }
 
-        y = checkPageBreak(doc, y, imgHeight + 12);
-        const xOffset = MARGIN + (CONTENT_WIDTH - imgWidth) / 2;
+        y = cpb(doc, y, imgHeight + 12);
+        const xOffset = MG + (CW - imgWidth) / 2;
         doc.addImage(imgData, imgFormat, xOffset, y, imgWidth, imgHeight);
         y += imgHeight + 4;
       } else {
         doc.setFontSize(8);
         doc.setFont("courier", "normal");
         doc.setTextColor(100, 100, 100);
-        const codeLines = doc.splitTextToSize(diagram.mermaidCode, CONTENT_WIDTH - 8);
+        const codeLines = doc.splitTextToSize(diagram.mermaidCode, CW - 8);
         doc.setFillColor(245, 245, 245);
         const codeHeight = Math.min(codeLines.length * 3.5 + 8, 60);
-        y = checkPageBreak(doc, y, codeHeight);
-        doc.roundedRect(MARGIN, y - 3, CONTENT_WIDTH, codeHeight, 2, 2, "F");
+        y = cpb(doc, y, codeHeight);
+        doc.roundedRect(MG, y - 3, CW, codeHeight, 2, 2, "F");
         let codeY = y + 2;
         const maxLines = Math.floor((codeHeight - 4) / 3.5);
         for (let j = 0; j < Math.min(codeLines.length, maxLines); j++) {
-          doc.text(codeLines[j], MARGIN + 4, codeY);
+          doc.text(codeLines[j], MG + 4, codeY);
           codeY += 3.5;
         }
         if (codeLines.length > maxLines) {
-          doc.text(`... (${codeLines.length - maxLines} more lines)`, MARGIN + 4, codeY);
+          doc.text(`... (${codeLines.length - maxLines} more lines)`, MG + 4, codeY);
         }
         y += codeHeight + 4;
       }
@@ -224,63 +264,63 @@ function addDiagrams(
       doc.setFontSize(9);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(102, 102, 102);
-      const descLines = doc.splitTextToSize(diagram.description, CONTENT_WIDTH);
+      const descLines = doc.splitTextToSize(diagram.description, CW);
       for (const line of descLines) {
-        y = checkPageBreak(doc, y, LINE_HEIGHT_SM);
-        doc.text(line, MARGIN, y);
-        y += LINE_HEIGHT_SM;
+        y = cpb(doc, y, LHSM);
+        doc.text(line, MG, y);
+        y += LHSM;
       }
-      y += SECTION_GAP;
+      y += SGAP;
     }
 
-    return drawSeparator(doc, y);
+    return sep(doc, y);
   })();
 }
 
 function addTradeoffs(
   doc: jsPDF,
   tradeoffs: Tradeoff[],
-  y: number
+  y: number,
 ): number {
-  y = addSectionHeader(doc, "DESIGN TRADE-OFFS", y);
+  y = secHead(doc, "DESIGN TRADE-OFFS", y);
 
   for (const tradeoff of tradeoffs) {
-    y = checkPageBreak(doc, y, 30);
+    y = cpb(doc, y, 30);
 
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(26, 26, 46);
-    const titleLines = doc.splitTextToSize(tradeoff.decision, CONTENT_WIDTH);
+    const titleLines = doc.splitTextToSize(tradeoff.decision, CW);
     for (const line of titleLines) {
-      y = checkPageBreak(doc, y, LINE_HEIGHT + 1);
-      doc.text(line, MARGIN, y);
-      y += LINE_HEIGHT + 1;
+      y = cpb(doc, y, LH + 1);
+      doc.text(line, MG, y);
+      y += LH + 1;
     }
     y += 3;
 
-    const colWidth = (CONTENT_WIDTH - 8) / 2;
+    const colWidth = (CW - 8) / 2;
 
     doc.setFillColor(240, 253, 244);
-    doc.roundedRect(MARGIN, y - 3, colWidth + 4, 4, 2, 2, "F");
+    doc.roundedRect(MG, y - 3, colWidth + 4, 4, 2, 2, "F");
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 101, 52);
-    doc.text("PROS", MARGIN + 2, y);
+    doc.text("PROS", MG + 2, y);
 
     doc.setFillColor(254, 242, 242);
-    doc.roundedRect(MARGIN + colWidth + 4, y - 3, colWidth + 4, 4, 2, 2, "F");
+    doc.roundedRect(MG + colWidth + 4, y - 3, colWidth + 4, 4, 2, 2, "F");
     doc.setTextColor(153, 27, 27);
-    doc.text("CONS", MARGIN + colWidth + 6, y);
+    doc.text("CONS", MG + colWidth + 6, y);
     y += 5;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
 
-    const leftX = MARGIN + 2;
-    const rightX = MARGIN + colWidth + 6;
+    const leftX = MG + 2;
+    const rightX = MG + colWidth + 6;
     const maxItems = Math.max(tradeoff.pros.length, tradeoff.cons.length);
     for (let i = 0; i < maxItems; i++) {
-      y = checkPageBreak(doc, y, LINE_HEIGHT_SM + 2);
+      y = cpb(doc, y, LHSM + 2);
 
       const proText = i < tradeoff.pros.length ? `+ ${tradeoff.pros[i]}` : "";
       const conText = i < tradeoff.cons.length ? `- ${tradeoff.cons[i]}` : "";
@@ -295,9 +335,9 @@ function addTradeoffs(
       const proCount = proText ? proLines.length : 0;
       const conCount = conText ? conLines.length : 0;
       const rowLines = Math.max(proCount, conCount, 1);
-      const rowHeight = rowLines * LINE_HEIGHT_SM + 2;
+      const rowHeight = rowLines * LHSM + 2;
 
-      y = checkPageBreak(doc, y, rowHeight);
+      y = cpb(doc, y, rowHeight);
 
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
@@ -307,7 +347,7 @@ function addTradeoffs(
         let proY = y;
         for (const line of proLines) {
           doc.text(line, leftX, proY);
-          proY += LINE_HEIGHT_SM;
+          proY += LHSM;
         }
       }
 
@@ -316,7 +356,7 @@ function addTradeoffs(
         let conY = y;
         for (const line of conLines) {
           doc.text(line, rightX, conY);
-          conY += LINE_HEIGHT_SM;
+          conY += LHSM;
         }
       }
 
@@ -325,27 +365,27 @@ function addTradeoffs(
     y += 4;
   }
 
-  return drawSeparator(doc, y);
+  return sep(doc, y);
 }
 
 function addTakeaways(doc: jsPDF, takeaways: string[], y: number): number {
-  y = addSectionHeader(doc, "KEY TAKEAWAYS", y);
+  y = secHead(doc, "KEY TAKEAWAYS", y);
 
   for (let i = 0; i < takeaways.length; i++) {
-    y = checkPageBreak(doc, y, LINE_HEIGHT + 3);
+    y = cpb(doc, y, LH + 3);
 
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(99, 102, 241);
-    doc.text(`${i + 1}.`, MARGIN, y);
+    doc.text(`${i + 1}.`, MG, y);
 
     doc.setFont("helvetica", "normal");
     doc.setTextColor(51, 51, 51);
-    const lines = doc.splitTextToSize(takeaways[i], CONTENT_WIDTH - 10);
+    const lines = doc.splitTextToSize(takeaways[i], CW - 10);
     for (const line of lines) {
-      y = checkPageBreak(doc, y, LINE_HEIGHT + 0.5);
-      doc.text(line, MARGIN + 8, y);
-      y += LINE_HEIGHT + 0.5;
+      y = cpb(doc, y, LH + 0.5);
+      doc.text(line, MG + 8, y);
+      y += LH + 0.5;
     }
     y += 3;
   }
@@ -353,13 +393,368 @@ function addTakeaways(doc: jsPDF, takeaways: string[], y: number): number {
   return y;
 }
 
+// ─── Pro Mode ────────────────────────────────────────────────────
+function addProCoverPage(
+  doc: jsPDF,
+  title: string,
+  date: string,
+  vid: string,
+): number {
+  doc.setFontSize(36);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+  doc.text("PRO", PW / 2, 80, { align: "center" });
+
+  doc.setFontSize(22);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(26, 26, 46);
+  const titleLines = doc.splitTextToSize(title, CW);
+  let y = 95;
+  for (const line of titleLines) {
+    doc.text(line, PW / 2, y, { align: "center" });
+    y += 9;
+  }
+  y += 5;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 100, 100);
+  doc.text(`${date}  |  Video ID: ${vid}`, PW / 2, y, { align: "center" });
+  y += 8;
+
+  doc.setDrawColor(GOLD.r, GOLD.g, GOLD.b);
+  doc.setLineWidth(1);
+  doc.line(PW / 2 - 40, y, PW / 2 + 40, y);
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "italic");
+  doc.setTextColor(120, 120, 120);
+  doc.text(
+    "Full video content structured as a comprehensive document",
+    PW / 2,
+    y,
+    { align: "center" },
+  );
+
+  doc.addPage();
+  return MG + 5;
+}
+
+function addTableOfContents(
+  doc: jsPDF,
+  sections: ProSection[],
+  focusAreas: string[],
+  y: number,
+): number {
+  y = secHead(doc, "TABLE OF CONTENTS", y, GOLD);
+
+  for (let i = 0; i < sections.length; i++) {
+    y = cpb(doc, y, LH + 2);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(51, 51, 51);
+    doc.text(`${i + 1}. ${sections[i].heading}`, MG + 2, y);
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text(
+      `${sections[i].startTime} - ${sections[i].endTime}`,
+      PW - MG,
+      y,
+      { align: "right" },
+    );
+    y += LH + 2;
+  }
+
+  y += 4;
+
+  if (focusAreas.length > 0) {
+    y = cpb(doc, y, LH + 4);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text("Focus Areas", MG, y);
+    y += LH + 2;
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    for (const area of focusAreas) {
+      y = cpb(doc, y, LH);
+      doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+      doc.text("\u2022", MG + 2, y);
+      doc.setTextColor(51, 51, 51);
+      doc.text(area, MG + 8, y);
+      y += LH;
+    }
+  }
+
+  return sep(doc, y);
+}
+
+function addOverview(doc: jsPDF, overview: string, y: number): number {
+  y = secHead(doc, "OVERVIEW", y, GOLD);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(51, 51, 51);
+  const lines = doc.splitTextToSize(overview, CW);
+  for (const line of lines) {
+    y = cpb(doc, y, LH + 1);
+    doc.text(line, MG, y);
+    y += LH + 0.5;
+  }
+  y += 4;
+
+  return sep(doc, y);
+}
+
+function addProSections(
+  doc: jsPDF,
+  sections: ProSection[],
+  transcript: TranscriptEntry[],
+  y: number,
+): number {
+  y = secHead(doc, "SECTIONS", y, GOLD);
+
+  for (const section of sections) {
+    y = cpb(doc, y, 20);
+
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 33, 62);
+    doc.text(section.heading, MG, y);
+    doc.setFontSize(8);
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text(
+      `${section.startTime} - ${section.endTime}`,
+      PW - MG,
+      y,
+      { align: "right" },
+    );
+    y += LH + 2;
+
+    const startMs = parseTimeToMs(section.startTime);
+    const endMs = parseTimeToMs(section.endTime);
+    const matchingEntries = transcript.filter(
+      (e) => e.offset >= startMs && e.offset < endMs,
+    );
+
+    if (matchingEntries.length > 0) {
+      const fullText = matchingEntries.map((e) => e.text).join(" ");
+      const allLines = doc.splitTextToSize(fullText, CW - 6);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 51, 51);
+
+      const groupSize = 6;
+      for (let i = 0; i < allLines.length; i += groupSize) {
+        const paraLines = allLines.slice(i, i + groupSize);
+        for (const line of paraLines) {
+          y = cpb(doc, y, LH + 1);
+          doc.text(line, MG, y);
+          y += LH;
+        }
+        if (i + groupSize < allLines.length) {
+          y += 3;
+        }
+      }
+      y += 3;
+    }
+
+    if (section.keyPoints && section.keyPoints.length > 0) {
+      const kpLines: string[] = [];
+      for (const kp of section.keyPoints) {
+        kpLines.push(...doc.splitTextToSize(`\u2022 ${kp}`, CW - 14));
+      }
+      const kpBoxH = kpLines.length * (LH + 0.5) + 14;
+
+      y = cpb(doc, y, kpBoxH);
+
+      doc.setFillColor(235, 245, 255);
+      doc.setDrawColor(59, 130, 246);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(MG, y - 4, CW, kpBoxH, 3, 3, "FD");
+
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(59, 130, 246);
+      doc.text("Key Points", MG + 5, y + 2);
+      y += LH + 3;
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 51, 51);
+      for (const kpl of kpLines) {
+        y = cpb(doc, y, LH);
+        doc.text(kpl, MG + 5, y);
+        y += LH + 0.5;
+      }
+      y += 4;
+    }
+
+    y = sep(doc, y);
+  }
+
+  return y;
+}
+
+function addDefinitions(
+  doc: jsPDF,
+  definitions: Definition[],
+  y: number,
+): number {
+  if (definitions.length === 0) return y;
+
+  y = secHead(doc, "KEY DEFINITIONS", y, GOLD);
+
+  for (const def of definitions) {
+    y = cpb(doc, y, LH * 2 + 4);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text(def.term, MG + 2, y);
+    y += LH;
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 80, 80);
+    const explLines = doc.splitTextToSize(def.explanation, CW - 8);
+    for (const line of explLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 6, y);
+      y += LH;
+    }
+    y += 4;
+  }
+
+  return sep(doc, y);
+}
+
+function addCallouts(doc: jsPDF, callouts: Callout[], y: number): number {
+  if (callouts.length === 0) return y;
+
+  y = secHead(doc, "INSIGHTS & TIPS", y, GOLD);
+
+  const STYLES: Record<
+    string,
+    { bg: number[]; border: number[]; text: number[]; label: string }
+  > = {
+    insight: {
+      bg: [232, 240, 254],
+      border: [59, 130, 246],
+      text: [30, 64, 175],
+      label: "Insight",
+    },
+    warning: {
+      bg: [255, 243, 224],
+      border: [217, 119, 6],
+      text: [146, 64, 14],
+      label: "Warning",
+    },
+    tip: {
+      bg: [236, 253, 245],
+      border: [22, 163, 74],
+      text: [22, 101, 52],
+      label: "Tip",
+    },
+  };
+
+  for (const callout of callouts) {
+    const style = STYLES[callout.type] || STYLES.insight;
+
+    const contentLines = doc.splitTextToSize(callout.content, CW - 16);
+    const titleH = callout.title ? LH + 2 : 0;
+    const contentH = contentLines.length * LH;
+    const boxHeight = titleH + contentH + 12;
+
+    y = cpb(doc, y, boxHeight);
+
+    doc.setFillColor(style.bg[0], style.bg[1], style.bg[2]);
+    doc.setDrawColor(style.border[0], style.border[1], style.border[2]);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
+
+    let lineY = y + 2;
+
+    if (callout.title) {
+      doc.setFontSize(9.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(style.text[0], style.text[1], style.text[2]);
+      doc.text(`${style.label}: ${callout.title}`, MG + 6, lineY);
+      lineY += titleH;
+    } else {
+      doc.setFontSize(9.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(style.text[0], style.text[1], style.text[2]);
+      doc.text(`${style.label}`, MG + 6, lineY);
+      lineY += LH + 2;
+    }
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(51, 51, 51);
+    for (const line of contentLines) {
+      doc.text(line, MG + 6, lineY);
+      lineY += LH;
+    }
+
+    y += boxHeight + 3;
+  }
+
+  return sep(doc, y);
+}
+
+function addQA(doc: jsPDF, qa: QA[], y: number): number {
+  if (qa.length === 0) return y;
+
+  y = secHead(doc, "Q & A", y, GOLD);
+
+  for (let i = 0; i < qa.length; i++) {
+    const item = qa[i];
+    y = cpb(doc, y, 15);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 33, 62);
+    const qLines = doc.splitTextToSize(`Q: ${item.question}`, CW - 4);
+    for (const line of qLines) {
+      y = cpb(doc, y, LH + 0.5);
+      doc.text(line, MG, y);
+      y += LH + 0.5;
+    }
+    y += 2;
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(51, 51, 51);
+    const aLines = doc.splitTextToSize(`A: ${item.answer}`, CW - 10);
+    for (const line of aLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 5, y);
+      y += LH;
+    }
+    y += 3;
+
+    if (i < qa.length - 1) {
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.2);
+      doc.line(MG, y, PW - MG, y);
+      y += 4;
+    }
+  }
+
+  return sep(doc, y);
+}
+
+// ─── Main Export ─────────────────────────────────────────────────
 export async function generatePdf(
   summary: SummaryResult,
-  mode: "normal" | "system-design",
-  videoId: string
+  mode: "normal" | "system-design" | "pro",
+  videoId: string,
+  transcript?: TranscriptEntry[],
 ): Promise<Buffer> {
-  const isSystemDesign = isSystemDesignSummary(summary);
-  const modeLabel = isSystemDesign ? "System Design" : "Normal";
+  const modeLabel =
+    mode === "pro" ? "Pro" : mode === "system-design" ? "System Design" : "Normal";
   const date = new Date().toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
@@ -372,19 +767,39 @@ export async function generatePdf(
     format: "a4",
   });
 
-  let y = addTitle(doc, summary.title, modeLabel, date, videoId);
+  let y: number;
 
-  y = addSummary(doc, summary.summary, y);
-  y = addGist(doc, summary.gist, y);
-  y = addTimestamps(doc, summary.timestamps, y);
+  if (mode === "pro" && isProSummary(summary)) {
+    const pro = summary as ProSummary;
 
-  if (isSystemDesign) {
-    const sdSummary = summary as SystemDesignSummary;
-    y = await addDiagrams(doc, sdSummary.diagrams, y);
-    y = addTradeoffs(doc, sdSummary.tradeoffs, y);
+    y = addProCoverPage(doc, pro.title, date, videoId);
+    y = addTableOfContents(doc, pro.sections, pro.focusAreas, y);
+    y = addOverview(doc, pro.overview, y);
+    y = addGist(doc, pro.gist, y, true);
+    y = addSummary(doc, pro.summary, y);
+    y = addProSections(doc, pro.sections, transcript || [], y);
+    y = addDefinitions(doc, pro.definitions, y);
+    y = addCallouts(doc, pro.callouts, y);
+    y = addQA(doc, pro.qa, y);
+    y = addTimestamps(doc, pro.timestamps, y);
+    addTakeaways(doc, pro.keyTakeaways, y);
+  } else if (mode === "system-design" && isSystemDesignSummary(summary)) {
+    const sd = summary as SystemDesignSummary;
+
+    y = addTitle(doc, sd.title, modeLabel, date, videoId);
+    y = addSummary(doc, sd.summary, y);
+    y = addGist(doc, sd.gist, y);
+    y = addTimestamps(doc, sd.timestamps, y);
+    y = await addDiagrams(doc, sd.diagrams, y);
+    y = addTradeoffs(doc, sd.tradeoffs, y);
+    addTakeaways(doc, sd.keyTakeaways, y);
+  } else {
+    y = addTitle(doc, summary.title, modeLabel, date, videoId);
+    y = addSummary(doc, summary.summary, y);
+    y = addGist(doc, summary.gist, y);
+    y = addTimestamps(doc, summary.timestamps, y);
+    addTakeaways(doc, summary.keyTakeaways, y);
   }
-
-  addTakeaways(doc, summary.keyTakeaways, y);
 
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
@@ -392,7 +807,7 @@ export async function generatePdf(
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(170, 170, 170);
-    doc.text(`Page ${i} of ${pageCount}`, PAGE_WIDTH / 2, PAGE_HEIGHT - 8, {
+    doc.text(`Page ${i} of ${pageCount}`, PW / 2, PH - 8, {
       align: "center",
     });
   }

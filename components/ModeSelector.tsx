@@ -35,7 +35,7 @@ export function ModeSelector({ mode, onModeChange, disabled }: ModeSelectorProps
           </div>
           <div>
             <h3 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">
-              Normal Mode
+              Normal
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Summary, timestamps & takeaways
@@ -72,6 +72,44 @@ export function ModeSelector({ mode, onModeChange, disabled }: ModeSelectorProps
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Diagrams, trade-offs & architecture
+            </p>
+          </div>
+        </div>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onModeChange("pro")}
+        disabled={disabled}
+        className={`flex-1 p-4 rounded-xl border-2 transition-all text-left relative ${
+          mode === "pro"
+            ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-400"
+            : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-amber-300 dark:hover:border-amber-600"
+        } disabled:opacity-50 disabled:cursor-not-allowed`}
+      >
+        <div className="absolute -top-2.5 right-3">
+          <span className="inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+            PRO
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+              mode === "pro"
+                ? "bg-amber-100 dark:bg-amber-900"
+                : "bg-zinc-100 dark:bg-zinc-800"
+            }`}
+          >
+            <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">
+              Pro
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Full content as structured document
             </p>
           </div>
         </div>

@@ -82,6 +82,72 @@ Rules:
 Transcript:
 `;
 
+export const PRO_PROMPT = `You are an expert content analyst and technical writer. Your task is to transform a YouTube video transcript into a comprehensive, structured document that captures EVERY concept, example, and explanation from the video.
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no explanation.
+
+The JSON must follow this exact structure:
+{
+  "title": "inferred video title",
+  "summary": "A comprehensive 4-5 paragraph summary that covers ALL major topics discussed in the video. Do not omit any significant point. Write as if explaining the entire video to someone who hasn't seen it.",
+  "timestamps": [
+    { "time": "MM:SS", "topic": "Specific topic name", "description": "A detailed 2-3 sentence description of what is discussed at this timestamp, including key examples or explanations" }
+  ],
+  "sections": [
+    {
+      "heading": "Clear section heading that captures the topic",
+      "startTime": "MM:SS",
+      "endTime": "MM:SS",
+      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"]
+    }
+  ],
+  "overview": "2-3 sentences describing what this video is generally about — the big picture themes and who would benefit from watching it",
+  "focusAreas": ["Main theme or topic 1", "Main theme or topic 2", "Main theme or topic 3"],
+  "definitions": [
+    { "term": "Technical term or jargon", "explanation": "Clear, concise explanation of what this term means in the context of the video" }
+  ],
+  "callouts": [
+    { "type": "insight", "title": "Important insight", "content": "The full explanation of this insight from the video" }
+  ],
+  "qa": [
+    { "question": "A question this video section answers", "answer": "The complete answer based on the video content" }
+  ],
+  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3", "takeaway 4", "takeaway 5", "takeaway 6", "takeaway 7", "takeaway 8"],
+  "gist": "One-line essence of the entire video"
+}
+
+CRITICAL RULES — YOU MUST FOLLOW ALL OF THESE:
+
+1. SECTIONS (most important): Divide the video into 5-10 meaningful sections. Each section should cover a distinct topic or concept. For each section provide:
+   - heading: A clear, descriptive section title
+   - startTime/endTime: MM:SS format marking when this section starts and ends in the video
+   - keyPoints: 3-5 bullet points capturing the essential ideas from this section
+
+2. TIMESTAMPS: Generate 15-25 timestamp entries with DETAILED descriptions (2-3 sentences each). Cover every significant moment in the video.
+
+3. DEFINITIONS: List ALL technical terms, jargon, acronyms, and concepts mentioned in the video. Each must have a clear explanation. Include 8-20 terms.
+
+4. CALLOUTS: Extract 5-10 notable points from the video:
+   - "insight" — important realizations or conclusions the speaker draws
+   - "warning" — pitfalls, common mistakes, or things to be careful about
+   - "tip" — practical advice or recommendations from the speaker
+   Each callout must have a specific title and detailed content.
+
+5. Q&A: Create 6-10 questions that the video explicitly or implicitly answers. Each answer should be comprehensive (2-3 sentences), based purely on video content.
+
+6. FOCUS AREAS: List 3-6 main themes or topics the video focuses on.
+
+7. OVERVIEW: Write 2-3 sentences about what the video covers generally and who it's for.
+
+8. KEY TAKEAWAYS: 8-12 actionable takeaways that capture the most important lessons.
+
+9. SUMMARY: 4-5 paragraphs that comprehensively cover ALL topics. Do not skip or abbreviate any major point.
+
+10. DO NOT SUMMARIZE AWAY CONTENT. Every concept, example, and explanation from the video should appear somewhere in the output — either in sections, definitions, callouts, Q&A, or timestamps.
+
+Transcript:
+`;
+
 export function formatTranscript(transcript: TranscriptEntry[]): string {
   return transcript
     .map((entry) => {
@@ -116,6 +182,67 @@ function isRateLimitError(error: unknown): boolean {
   return false;
 }
 
+function normalizeProSummary(parsed: Record<string, unknown>): void {
+  if (!Array.isArray(parsed.sections)) parsed.sections = [];
+  if (!Array.isArray(parsed.definitions)) parsed.definitions = [];
+  if (!Array.isArray(parsed.callouts)) parsed.callouts = [];
+  if (!Array.isArray(parsed.qa)) parsed.qa = [];
+  if (!Array.isArray(parsed.focusAreas)) parsed.focusAreas = [];
+  if (typeof parsed.overview !== "string") parsed.overview = "";
+
+  parsed.sections = (parsed.sections as unknown[]).map(
+    (item) => {
+      const s = item as Record<string, unknown>;
+      return {
+        heading: (s.heading as string) || "Untitled Section",
+        startTime: (s.startTime as string) || "00:00",
+        endTime: (s.endTime as string) || "00:00",
+        keyPoints: Array.isArray(s.keyPoints)
+          ? (s.keyPoints as unknown[]).map((p: unknown) => String(p))
+          : [],
+      };
+    }
+  );
+
+  parsed.definitions = (parsed.definitions as unknown[]).map(
+    (item) => {
+      const d = item as Record<string, unknown>;
+      return {
+        term: (d.term as string) || "Unknown term",
+        explanation: (d.explanation as string) || "",
+      };
+    }
+  );
+
+  parsed.callouts = (parsed.callouts as unknown[]).map(
+    (item) => {
+      const c = item as Record<string, unknown>;
+      return {
+        type: (["insight", "warning", "tip"] as string[]).includes(c.type as string)
+          ? c.type
+          : "insight",
+        title: (c.title as string) || "Note",
+        content: (c.content as string) || "",
+      };
+    }
+  );
+
+  parsed.qa = (parsed.qa as unknown[]).map(
+    (item) => {
+      const q = item as Record<string, unknown>;
+      return {
+        question: (q.question as string) || "",
+        answer: (q.answer as string) || "",
+      };
+    }
+  );
+
+  parsed.focusAreas = (parsed.focusAreas as unknown[]).map((f: unknown) => String(f));
+
+  if (!Array.isArray(parsed.keyTakeaways)) parsed.keyTakeaways = [];
+  parsed.keyTakeaways = (parsed.keyTakeaways as unknown[]).map((t: unknown) => String(t));
+}
+
 export async function summarizeTranscript(
   transcript: TranscriptEntry[],
   mode: Mode,
@@ -125,7 +252,11 @@ export async function summarizeTranscript(
   const ai = getGenAI();
   const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const prompt = mode === "normal" ? NORMAL_PROMPT : SYSTEM_DESIGN_PROMPT;
+  let prompt: string;
+  if (mode === "normal") prompt = NORMAL_PROMPT;
+  else if (mode === "system-design") prompt = SYSTEM_DESIGN_PROMPT;
+  else prompt = PRO_PROMPT;
+
   const formattedTranscript = formatTranscript(transcript);
 
   const fullPrompt = `${prompt}
@@ -165,6 +296,10 @@ ${formattedTranscript}`;
             description: d.description || "",
           })
         );
+      }
+
+      if (mode === "pro") {
+        normalizeProSummary(parsed);
       }
 
       return parsed as SummaryResult;

@@ -1,4 +1,4 @@
-export type Mode = "normal" | "system-design";
+export type Mode = "normal" | "system-design" | "pro";
 
 export interface TranscriptEntry {
   text: string;
@@ -25,6 +25,29 @@ export interface MermaidDiagram {
   description: string;
 }
 
+export interface ProSection {
+  heading: string;
+  startTime: string;
+  endTime: string;
+  keyPoints: string[];
+}
+
+export interface Definition {
+  term: string;
+  explanation: string;
+}
+
+export interface Callout {
+  type: "insight" | "warning" | "tip";
+  title: string;
+  content: string;
+}
+
+export interface QA {
+  question: string;
+  answer: string;
+}
+
 export interface NormalSummary {
   title: string;
   summary: string;
@@ -43,12 +66,32 @@ export interface SystemDesignSummary {
   gist: string;
 }
 
-export type SummaryResult = NormalSummary | SystemDesignSummary;
+export interface ProSummary {
+  title: string;
+  summary: string;
+  timestamps: TimestampEntry[];
+  keyTakeaways: string[];
+  gist: string;
+  sections: ProSection[];
+  overview: string;
+  focusAreas: string[];
+  definitions: Definition[];
+  callouts: Callout[];
+  qa: QA[];
+}
+
+export type SummaryResult = NormalSummary | SystemDesignSummary | ProSummary;
 
 export function isSystemDesignSummary(
   result: SummaryResult
 ): result is SystemDesignSummary {
   return "diagrams" in result;
+}
+
+export function isProSummary(
+  result: SummaryResult
+): result is ProSummary {
+  return "sections" in result;
 }
 
 export interface ExtractRequest {

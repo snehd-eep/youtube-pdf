@@ -20,6 +20,7 @@ export default function Home() {
   const [pdfBuffer, setPdfBuffer] = useState<ArrayBuffer | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [transcript, setTranscript] = useState<Array<{ offset: number; text: string; duration: number }> | null>(null);
 
   const initialSteps: ProcessingStep[] = [
     { id: "extract", label: "Extracting transcript from video", status: "pending" },
@@ -79,7 +80,8 @@ export default function Home() {
         throw new Error(err.error || "Failed to extract transcript");
       }
 
-      const { videoId: vidId, title, transcript } = await extractRes.json();
+      const { videoId: vidId, title, transcript: extractedTranscript } = await extractRes.json();
+      setTranscript(extractedTranscript);
       updateStep("extract", "done");
 
       updateStep("summarize", "in_progress");
@@ -88,7 +90,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          transcript,
+          transcript: extractedTranscript,
           mode,
           title,
           videoId: vidId,
@@ -114,6 +116,7 @@ export default function Home() {
           mode,
           videoId: vidId,
           title,
+          ...(mode === "pro" && transcript ? { transcript } : {}),
         }),
       });
 
@@ -160,6 +163,7 @@ export default function Home() {
     setPdfBuffer(null);
     setFromCache(false);
     setIsRegenerating(false);
+    setTranscript(null);
   };
 
   return (
@@ -206,6 +210,26 @@ export default function Home() {
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                         Best for architecture, design, and engineering videos. Generates
                         Mermaid diagrams, trade-offs analysis, and detailed system breakdowns.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {mode === "pro" && (
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex gap-3">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+                    </svg>
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                        Pro Mode
+                      </h4>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                        The entire video content as a structured, book-like PDF. Includes sections,
+                        definitions, Q&amp;A, callouts, and full transcript text — nothing is left out.
+                        Processing may take longer due to comprehensive analysis.
                       </p>
                     </div>
                   </div>
@@ -283,7 +307,7 @@ export default function Home() {
                       {url}
                     </p>
                     <p className="text-xs text-indigo-600 dark:text-indigo-400">
-                      Mode: {mode === "system-design" ? "System Design" : "Normal"}
+                      Mode: {mode === "system-design" ? "System Design" : mode === "pro" ? "Pro" : "Normal"}
                     </p>
                   </div>
                 </div>

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { generatePdf } from "@/lib/pdf-generator";
 import { setCachedPdfUrl } from "@/lib/kv";
 import { storePdf } from "@/lib/blob";
-import { SummaryResult, Mode } from "@/lib/types";
+import { SummaryResult, Mode, TranscriptEntry } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { summary, mode, videoId, title } = body;
+    const { summary, mode, videoId, title, transcript } = body;
 
     if (!summary) {
       return NextResponse.json(
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!mode || (mode !== "normal" && mode !== "system-design")) {
+    if (!mode || (mode !== "normal" && mode !== "system-design" && mode !== "pro")) {
       return NextResponse.json(
         { error: "Missing or invalid 'mode' field" },
         { status: 400 }
@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
     const pdfBuffer = await generatePdf(
       summary as SummaryResult,
       mode as Mode,
-      videoId
+      videoId,
+      transcript as TranscriptEntry[] | undefined
     );
 
     try {

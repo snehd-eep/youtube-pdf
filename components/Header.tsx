@@ -23,7 +23,7 @@ export function Header() {
           </h1>
         </div>
         <span className="text-xs text-zinc-500 dark:text-zinc-400 hidden sm:block">
-          Video → PDF in seconds
+          Video → PDF in seconds · v1.0.0
         </span>
       </div>
     </header>

@@ -15,9 +15,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!mode || (mode !== "normal" && mode !== "system-design")) {
+    if (!mode || (mode !== "normal" && mode !== "system-design" && mode !== "pro")) {
       return NextResponse.json(
-        { error: "Missing or invalid 'mode' field. Must be 'normal' or 'system-design'" },
+        { error: "Missing or invalid 'mode' field. Must be 'normal', 'system-design', or 'pro'" },
         { status: 400 }
       );
     }
