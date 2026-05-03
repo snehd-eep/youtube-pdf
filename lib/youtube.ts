@@ -155,7 +155,7 @@ function parseXmlTranscript(xml: string, lang: string): TranscriptEntry[] {
   while ((match = textRegex.exec(xml)) !== null) {
     const start = parseFloat(match[1]) * 1000;
     const dur = parseFloat(match[2]) * 1000;
-    let text = decodeEntities(match[3]).replace(/\n/g, " ").trim();
+    const text = decodeEntities(match[3]).replace(/\n/g, " ").trim();
     if (text) {
       results.push({ text, duration: dur, offset: start, lang });
     }
@@ -409,7 +409,8 @@ async function fetchCaptionXml(track: CaptionTrack): Promise<string> {
 
   // 3. If not English, try translating with &tlang=en
   if (track.languageCode !== "en") {
-    const translatedUrl = url + (url.includes("&") || url.includes("?tlang") ? "&" : "") + "&tlang=en";
+    const separator = url.includes("?") ? "&" : "?";
+    const translatedUrl = url + separator + "tlang=en";
     console.log(`Caption: trying tlang=en translation for ${track.languageCode}`);
 
     try {
