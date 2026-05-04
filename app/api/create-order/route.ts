@@ -5,7 +5,6 @@ import { Mode } from "@/lib/types";
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_Skyk6nmjDPZZa0";
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 async function getRedis(): Promise<Redis> {
   const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
@@ -94,7 +93,6 @@ export async function POST(request: NextRequest) {
       keyId: RAZORPAY_KEY_ID,
       priceLabel: `${inrLabel} (${usdLabel})`,
       exchangeRate,
-      callbackUrl: `${APP_URL}/api/payment-callback`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create order";

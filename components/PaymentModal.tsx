@@ -25,9 +25,7 @@ interface RazorpayOptions {
   order_id: string;
   name: string;
   description: string;
-  handler?: (response: RazorpayResponse) => void;
-  callback_url?: string;
-  redirect?: boolean;
+  handler: (response: RazorpayResponse) => void;
   modal: {
     ondismiss: () => void;
   };
@@ -142,7 +140,6 @@ export function PaymentModal({ mode, videoId, videoTitle, onSuccess, onCancel }:
               setState("error");
             }
           },
-          callback_url: order.callbackUrl,
           modal: {
             ondismiss: () => {
               if (!cancelled) {
