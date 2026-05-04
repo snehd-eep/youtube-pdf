@@ -5,8 +5,8 @@ let redis: Redis | null = null;
 function getRedis(): Redis {
   if (redis) return redis;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAATu4AAIgcDE1OTkzMjFiZjE3NmM0ZTdlOGVlZWJlODgyNjczNjg5Ng";
+  const url = process.env.UPSTASH_REDIS_REST_URL!;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
 
   redis = new Redis({ url, token });
   return redis;

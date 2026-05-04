@@ -3,12 +3,12 @@ import { Redis } from "@upstash/redis";
 import { PRICING } from "@/lib/pricing";
 import { Mode } from "@/lib/types";
 
-const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_Skyk6nmjDPZZa0";
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID!;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET!;
 
 async function getRedis(): Promise<Redis> {
-  const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAATu4AAIgcDE1OTkzMjFiZjE3NmM0ZTdlOGVlZWJlODgyNjczNjg5Ng";
+  const url = process.env.UPSTASH_REDIS_REST_URL!;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
   return new Redis({ url, token });
 }
 

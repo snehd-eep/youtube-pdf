@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { setPaymentVerified } from "@/lib/kv";
 import { Mode } from "@/lib/types";
 
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET!;
 
 export async function POST(request: NextRequest) {
   try {
