@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { summarizeTranscript } from "@/lib/gemini";
+import { summarizeWithFailover } from "@/lib/llm";
 import { getCachedSummary, setCachedSummary } from "@/lib/kv";
 import { Mode, TranscriptEntry } from "@/lib/types";
 
@@ -29,6 +29,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const MAX_TRANSCRIPT_CHARS = 240000;
+
+    const totalChars = (transcript as TranscriptEntry[]).reduce((sum, e) => sum + (e.text?.length || 0), 0);
+    if (totalChars > MAX_TRANSCRIPT_CHARS) {
+      return NextResponse.json(
+        { error: `This video is too long. We support videos up to ~4 hours. Please try a shorter video.` },
+        { status: 413 }
+      );
+    }
+
     const cachedSummary = await getCachedSummary(videoId, mode as Mode);
     if (cachedSummary) {
       console.log(`Cache hit for summary: ${videoId}:${mode}`);
@@ -36,7 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`Generating summary for video ${videoId} in ${mode} mode...`);
-    const summary = await summarizeTranscript(
+    const summary = await summarizeWithFailover(
       transcript as TranscriptEntry[],
       mode as Mode,
       title || `Video ${videoId}`,
@@ -57,9 +67,9 @@ export async function POST(request: NextRequest) {
 
     console.error("Summarize error:", message);
 
-    if (message.includes("GEMINI_API_KEY")) {
+    if (message.includes("API_KEY")) {
       return NextResponse.json(
-        { error: "AI service not configured. Please set GEMINI_API_KEY in .env.local" },
+        { error: "AI service not configured. Please set API keys in environment variables." },
         { status: 503 }
       );
     }
@@ -67,7 +77,7 @@ export async function POST(request: NextRequest) {
     if (message.includes("rate limit") || message.includes("429") || message.includes("quota")) {
       return NextResponse.json(
         {
-          error: "Gemini AI rate limit reached. Free tier allows 15 requests/minute. Please wait 60 seconds and try again.",
+          error: "All AI providers rate-limited. Please wait 60 seconds and try again.",
           retryAfter: 60,
         },
         { status: 429, headers: { "Retry-After": "60" } }

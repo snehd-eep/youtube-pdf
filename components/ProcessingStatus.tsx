@@ -30,66 +30,45 @@ export function ProcessingStatus({ steps, fromCache }: ProcessingStatusProps) {
     );
   }
 
+  const currentStep = steps.find(s => s.status === "in_progress");
+  const completedCount = steps.filter(s => s.status === "done").length;
+  const totalSteps = steps.length;
+  const progress = Math.round((completedCount / totalSteps) * 100);
+
+  const hasError = steps.some(s => s.status === "error");
+  const errorStep = steps.find(s => s.status === "error");
+
   return (
     <div className="w-full p-6 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
-      <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-4">
-        Processing your video
-      </h3>
-      <div className="space-y-4">
-        {steps.map((step) => (
-          <div key={step.id} className="flex items-center gap-3">
-            <div className="flex-shrink-0">
-              {step.status === "done" && (
-                <div className="w-6 h-6 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-9" />
-                  </svg>
-                </div>
-              )}
-              {step.status === "in_progress" && (
-                <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                </div>
-              )}
-              {step.status === "pending" && (
-                <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-                  <div className="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-600" />
-                </div>
-              )}
-              {step.status === "error" && (
-                <div className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </div>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p
-                className={`text-sm font-medium ${
-                  step.status === "in_progress"
-                    ? "text-indigo-600 dark:text-indigo-400"
-                    : step.status === "done"
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : step.status === "error"
-                    ? "text-red-600 dark:text-red-400"
-                    : "text-zinc-400 dark:text-zinc-500"
-                }`}
-              >
-                {step.label}
-              </p>
-              {step.error && (
-                <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">
-                  {step.error}
-                </p>
-              )}
-            </div>
-          </div>
-        ))}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
+          {hasError ? "Something went wrong" : "Processing your video"}
+        </h3>
+        <span className="text-sm text-zinc-500 dark:text-zinc-400">
+          {hasError ? "" : `${completedCount}/${totalSteps} complete`}
+        </span>
       </div>
+
+      {!hasError && (
+        <>
+          <div className="w-full h-2 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-4">
+            <div 
+              className="h-full bg-indigo-600 dark:bg-indigo-500 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            {currentStep?.label || "Starting..."}
+          </p>
+        </>
+      )}
+
+      {hasError && errorStep?.error && (
+        <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+          {errorStep.error}
+        </p>
+      )}
     </div>
   );
 }

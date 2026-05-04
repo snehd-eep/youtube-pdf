@@ -1,9 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
 import { PRICING } from "@/lib/pricing";
 import { Mode } from "@/lib/types";
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_Skyk6nmjDPZZa0";
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+async function getRedis(): Promise<Redis | null> {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  return new Redis({ url, token });
+}
+
+async function getExchangeRate(): Promise<number> {
+  try {
+    const res = await fetch("https://api.exchangerate-api.com/v6/latest/USD", { next: { revalidate: 3600 } });
+    if (!res.ok) throw new Error("Exchange rate API failed");
+    const data = await res.json() as { conversion_rates: { INR: number } };
+    return data.conversion_rates.INR;
+  } catch {
+    return 83;
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,6 +52,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const exchangeRate = await getExchangeRate();
+    const inrAmount = Math.round(pricing.priceUsd * exchangeRate * 100);
+    const inrLabel = `₹${Math.round(pricing.priceUsd * exchangeRate)}`;
+    const usdLabel = `$${pricing.priceUsd}`;
+
     const receipt = `yt2pdf_${Date.now()}`;
 
     const auth = Buffer.from(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`).toString("base64");
@@ -43,7 +68,7 @@ export async function POST(request: NextRequest) {
         "Authorization": `Basic ${auth}`,
       },
       body: JSON.stringify({
-        amount: pricing.amountPaise,
+        amount: inrAmount,
         currency: "INR",
         receipt,
       }),
@@ -60,11 +85,19 @@ export async function POST(request: NextRequest) {
 
     const order = await response.json();
 
+    const redis = await getRedis();
+    if (redis) {
+      await redis.set(`order:${order.id}`, JSON.stringify({ mode, videoId }), { ex: 24 * 60 * 60 });
+    }
+
     return NextResponse.json({
       orderId: order.id,
       amount: Number(order.amount),
       currency: order.currency,
       keyId: RAZORPAY_KEY_ID,
+      priceLabel: `${inrLabel} (${usdLabel})`,
+      exchangeRate,
+      callbackUrl: `${APP_URL}/api/payment-callback`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create order";

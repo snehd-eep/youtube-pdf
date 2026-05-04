@@ -33,6 +33,7 @@ export interface ProSection {
   startTime: string;
   endTime: string;
   keyPoints: string[];
+  sectionSummary?: string;
 }
 
 export interface Definition {

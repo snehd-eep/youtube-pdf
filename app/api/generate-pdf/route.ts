@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generatePdf } from "@/lib/pdf-generator";
-import { setCachedPdfUrl } from "@/lib/kv";
 import { storePdf } from "@/lib/blob";
 import { SummaryResult, Mode, TranscriptEntry } from "@/lib/types";
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^\x20-\x7E]/g, "").replace(/[/\\?%*:|"<>]/g, "-").substring(0, 100) || "output";
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,6 +33,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const safeName = sanitizeFilename(title || videoId);
+    const filename = `${safeName}-${mode}.pdf`;
+
     const pdfBuffer = await generatePdf(
       summary as SummaryResult,
       mode as Mode,
@@ -38,28 +44,18 @@ export async function POST(request: NextRequest) {
     );
 
     try {
-      const pdfUrl = await storePdf(videoId, mode, pdfBuffer);
-      await setCachedPdfUrl(videoId, mode as Mode, pdfUrl);
-
-      return new NextResponse(new Uint8Array(pdfBuffer), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `inline; filename="${title || videoId}-${mode}.pdf"`,
-          "X-Pdf-Url": pdfUrl,
-        },
-      });
-    } catch (blobError) {
-      console.warn("Blob storage failed, returning PDF directly:", blobError);
-
-      return new NextResponse(new Uint8Array(pdfBuffer), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `inline; filename="${title || videoId}-${mode}.pdf"`,
-        },
-      });
+      await storePdf(videoId, mode, pdfBuffer);
+    } catch (cacheError) {
+      console.warn("Failed to cache PDF in Redis:", cacheError);
     }
+
+    return new NextResponse(new Uint8Array(pdfBuffer), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${filename}"`,
+      },
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to generate PDF";

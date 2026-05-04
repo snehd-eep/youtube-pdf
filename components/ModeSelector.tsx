@@ -118,7 +118,7 @@ export function ModeSelector({ mode, onModeChange, disabled }: ModeSelectorProps
                   : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
               }`}
             >
-              Detailed (₹5)
+              Detailed (₹5 / $0.10)
             </button>
           </div>
         </div>
@@ -136,7 +136,7 @@ export function ModeSelector({ mode, onModeChange, disabled }: ModeSelectorProps
       >
         <div className="absolute -top-2.5 right-3">
           <span className="inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">
-            ₹5
+            ₹5 / $0.10
           </span>
         </div>
         <div className="flex items-center gap-3">

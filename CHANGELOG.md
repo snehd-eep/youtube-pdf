@@ -5,7 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.1] - 2025-05-03
+## [1.2.0] - 2025-05-04
+
+### Added
+- **Multi-provider LLM failover** — Gemini → Groq → Cerebras → Mistral → OpenRouter
+  - `lib/llm.ts` — Central failover router with mode-aware provider selection
+  - `lib/cerebras.ts` — Cerebras provider (llama3.1-8b / llama-3.3-70b)
+  - `lib/mistral.ts` — Mistral provider (mistral-small-latest / mistral-medium-latest)
+  - `lib/openrouter.ts` — OpenRouter provider (openrouter/free auto-routing)
+  - `lib/groq.ts` — Groq provider (llama-3.1-8b-instant / llama-3.3-70b-versatile)
+- **Smart model selection by transcript size** — Each provider picks a faster/smaller model
+  for short transcripts and simpler modes, falling back to larger models as needed
+- **Razorpay callback URL integration** — Server-side payment confirmation
+  - `POST /api/payment-callback` — Verifies signature, stores payment in Redis, redirects to success/failure pages
+  - `POST /api/create-order` — Now stores `{mode, videoId}` in Redis for callback retrieval
+  - `/payment-success` — Reads query params, stores payment in localStorage, auto-redirects home
+  - `/payment-failed` — Error display with retry link
+  - PaymentModal uses `handler` (full UPI/card/wallet support) + `callback_url` (WebView fallback)
+- **International pricing** — Dual INR/USD display with live exchange rate from exchangerate-api.com
+  - `GET /api/exchange-rate` — Cached in Redis for 1 hour, fallback ₹83/USD
+- **Redis-based PDF caching** — PDFs stored as base64 in Redis (7-day TTL), replacing Vercel Blob dependency
+- **Video duration limit** — 4-hour max (240K transcript chars). Clear error message on extract/summarize APIs
+- **Pro mode section summaries** — LLM generates `sectionSummary` (3-5 sentences) per section instead of dumping raw transcript into PDF
+- **Cerebras & Mistral API keys** — Added to `.env.local` for multi-provider failover
+- **Perf test infrastructure** — `perf-test.js` + `perf-test-videos.json` for concurrent load testing with PDF output
+
+### Changed
+- **PDF generation** — `addProSections()` renders `sectionSummary` text instead of raw transcript;
+  falls back to 500-char transcript excerpt only if LLM didn't return summary
+- **PDF generation** — All summary fields (`sections`, `diagrams`, `definitions`, etc.) now null-safe with `|| []` defaults
+- **Groq provider** — Changed from `llama-3.1-8b-instant` (normal-only) to multi-model with `llama-3.3-70b-versatile`
+  for all modes
+- **Mistral provider** — Uses `max_tokens` instead of `max_completion_tokens` (Mistral API difference)
+- **Failover error handling** — 413/404/422/"failed after" errors now trigger failover to next provider
+- **`lib/kv.ts`** — Removed `getCachedPdfUrl`/`setCachedPdfUrl`; `checkCacheStatus` now checks Redis `pdf_blob:*` keys
+- **`lib/blob.ts`** — Replaced Vercel Blob with Redis base64 storage (`storePdf`, `getPdfBuffer`)
+- **`app/api/generate-pdf/route.ts`** — Simplified: no more Blob URL header, just stores PDF in Redis and returns buffer
+- **`app/api/extract/route.ts`** — Added 240K char transcript limit check
+- **`app/api/summarize/route.ts`** — Added 240K char transcript limit check
+- **PaymentModal** — Re-added `handler` callback for in-page verification (full payment method support),
+  plus `callback_url` as WebView fallback. Removed `redirect: true`
+- **ModeSelector** — Shows dual pricing `₹5 / $0.10` with live exchange rate
+- **PDF filename** — Sanitized to ASCII-only characters to prevent ByteString errors
+
+### Fixed
+- ByteString error in PDF Content-Disposition header for titles with non-ASCII characters
+- Mistral 422 errors — `max_completion_tokens` → `max_tokens` parameter name
+- PDF generation crash when LLM returns undefined `diagrams`/`sections`/`definitions` arrays
+- PDF generation crash on `addProSections` when `section.keyPoints` was undefined
+- Groq 413 TPM errors — Now uses context-appropriate model sizes with fallback chains
 
 ### Added
 - **Razorpay payment integration** — Modal overlay checkout for paid modes (System Design Pro & Pro)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { UrlInput } from "@/components/UrlInput";
 import { ModeSelector } from "@/components/ModeSelector";
@@ -24,13 +24,14 @@ function HomeContent() {
   const [fromCache, setFromCache] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [paymentVerified, setPaymentVerified] = useState(false);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
 
   const payment = usePayment();
 
   const initialSteps: ProcessingStep[] = [
-    { id: "extract", label: "Extracting transcript from video", status: "pending" },
-    { id: "summarize", label: "Analyzing content with AI", status: "pending" },
-    { id: "generate", label: "Generating PDF", status: "pending" },
+    { id: "extract", label: "Getting video content", status: "pending" },
+    { id: "summarize", label: "Analyzing video", status: "pending" },
+    { id: "generate", label: "Creating PDF", status: "pending" },
   ];
 
   const updateStep = (
@@ -153,11 +154,21 @@ function HomeContent() {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!pdfBuffer) return;
 
     if (isPaidMode(mode) && !paymentVerified) {
       return;
+    }
+
+    const videoId = extractVideoId(url);
+    const orderId = localStorage.getItem(`payment_${mode}_${videoId}`);
+    let razorpayOrderId = null;
+    if (orderId) {
+      try {
+        const data = JSON.parse(orderId);
+        razorpayOrderId = data.razorpayOrderId;
+      } catch {}
     }
 
     const blob = new Blob([pdfBuffer], { type: "application/pdf" });
@@ -169,6 +180,16 @@ function HomeContent() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(downloadUrl);
+
+    if (razorpayOrderId && videoId) {
+      try {
+        await fetch("/api/delete-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ razorpayOrderId, videoId, mode }),
+        });
+      } catch {}
+    }
   };
 
   const handlePayAndDownload = () => {
@@ -211,9 +232,40 @@ function HomeContent() {
     setPaymentVerified(false);
   };
 
+  const handleBack = useCallback(() => {
+    if (state === "done" && pdfBuffer) {
+      setShowBackConfirm(true);
+    } else {
+      handleReset();
+    }
+  }, [state, pdfBuffer]);
+
+  const confirmBack = () => {
+    setShowBackConfirm(false);
+    handleReset();
+  };
+
+  const cancelBack = () => {
+    setShowBackConfirm(false);
+  };
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (state === "done" && pdfBuffer) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [state, pdfBuffer]);
+
   const isNoCaptionsError = error.toLowerCase().includes("could not extract") ||
     error.toLowerCase().includes("captions disabled") ||
     error.toLowerCase().includes("no transcripts");
+
+  const isVideoTooLong = error.toLowerCase().includes("too long") || error.toLowerCase().includes("too short");
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -273,7 +325,7 @@ function HomeContent() {
                     </svg>
                     <div>
                       <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        System Design Pro — ₹5/PDF
+                        System Design Pro — ₹5 ($0.10)/PDF
                       </h4>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                         Auto-detects system design videos and generates architecture,
@@ -294,7 +346,7 @@ function HomeContent() {
                     </svg>
                     <div>
                       <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        Pro — ₹5/PDF
+                        Pro — ₹5 ($0.10)/PDF
                       </h4>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                         The entire video content as a structured, book-like PDF. Includes sections,
@@ -412,7 +464,9 @@ function HomeContent() {
                   ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
                   : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
                     ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
-                    : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                    : isVideoTooLong
+                      ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+                      : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
               }`}>
                 <div className="flex items-start gap-3">
                   {isNoCaptionsError ? (
@@ -422,6 +476,10 @@ function HomeContent() {
                   ) : (error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) ? (
                     <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                    </svg>
+                  ) : isVideoTooLong ? (
+                    <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                     </svg>
                   ) : (
                     <svg className="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -434,23 +492,29 @@ function HomeContent() {
                         ? "text-amber-800 dark:text-amber-300"
                         : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
                           ? "text-amber-800 dark:text-amber-300"
-                          : "text-red-800 dark:text-red-300"
+                          : isVideoTooLong
+                            ? "text-amber-800 dark:text-amber-300"
+                            : "text-red-800 dark:text-red-300"
                     }`}>
                       {isNoCaptionsError
                         ? "No captions available"
-                        : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
-                          ? "Rate limit reached"
-                          : "Something went wrong"
+                        : isVideoTooLong
+                          ? "Video too long"
+                          : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                            ? "Rate limit reached"
+                            : "Something went wrong"
                       }
                     </h3>
                     <p className={`text-sm mt-1 ${
-                      isNoCaptionsError || error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                      isNoCaptionsError || error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429") || isVideoTooLong
                         ? "text-amber-700 dark:text-amber-400"
                         : "text-red-600 dark:text-red-400"
                     }`}>
                       {isNoCaptionsError
                         ? "This video doesn't have captions available (not even auto-generated). We can only process videos that have YouTube captions. Try a different video."
-                        : error
+                        : isVideoTooLong
+                          ? error
+                          : error
                       }
                     </p>
                     {(error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) && (
@@ -475,7 +539,7 @@ function HomeContent() {
             <div className="space-y-6">
               <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
                 <button
-                  onClick={handleReset}
+                  onClick={handleBack}
                   className="hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
                 >
                   Home
@@ -520,6 +584,37 @@ function HomeContent() {
           onSuccess={handlePaymentSuccess}
           onCancel={handlePaymentCancel}
         />
+      )}
+
+      {showBackConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div 
+            className="absolute inset-0 bg-black/50"
+            onClick={cancelBack}
+          />
+          <div className="relative bg-white dark:bg-zinc-900 rounded-2xl shadow-xl p-6 max-w-sm mx-4">
+            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
+              Go back?
+            </h3>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6">
+              You have a generated PDF. Going back will clear it. Are you sure?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={cancelBack}
+                className="flex-1 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+              >
+                Stay
+              </button>
+              <button
+                onClick={confirmBack}
+                className="flex-1 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium transition-colors"
+              >
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-6">

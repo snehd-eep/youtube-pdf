@@ -98,7 +98,8 @@ The JSON must follow this exact structure:
       "heading": "Clear section heading that captures the topic",
       "startTime": "MM:SS",
       "endTime": "MM:SS",
-      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"]
+      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"],
+      "sectionSummary": "A detailed 3-5 sentence summary of what is covered in this section, capturing the key arguments, examples, and explanations. This replaces the raw transcript."
     }
   ],
   "overview": "2-3 sentences describing what this video is generally about — the big picture themes and who would benefit from watching it",
@@ -122,6 +123,7 @@ CRITICAL RULES — YOU MUST FOLLOW ALL OF THESE:
    - heading: A clear, descriptive section title
    - startTime/endTime: MM:SS format marking when this section starts and ends in the video
    - keyPoints: 3-5 bullet points capturing the essential ideas from this section
+   - sectionSummary: A detailed 3-5 sentence summary of what is covered in this section, including key arguments, examples, and explanations. This is the MOST important field — it replaces printing the raw transcript.
 
 2. TIMESTAMPS: Generate 15-25 timestamp entries with DETAILED descriptions (2-3 sentences each). Cover every significant moment in the video.
 
@@ -143,7 +145,7 @@ CRITICAL RULES — YOU MUST FOLLOW ALL OF THESE:
 
 9. SUMMARY: 4-5 paragraphs that comprehensively cover ALL topics. Do not skip or abbreviate any major point.
 
-10. DO NOT SUMMARIZE AWAY CONTENT. Every concept, example, and explanation from the video should appear somewhere in the output — either in sections, definitions, callouts, Q&A, or timestamps.
+10. DO NOT SUMMARIZE AWAY CONTENT. Every concept, example, and explanation from the video should appear somewhere in the output — either in section summaries, definitions, callouts, Q&A, or timestamps.
 
 Transcript:
 `;
@@ -164,7 +166,8 @@ The JSON must follow this exact structure:
       "heading": "Clear section heading that captures the topic",
       "startTime": "MM:SS",
       "endTime": "MM:SS",
-      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"]
+      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"],
+      "sectionSummary": "A detailed 3-5 sentence summary of what is covered in this section, capturing the key arguments, examples, and explanations. This replaces the raw transcript."
     }
   ],
   "overview": "2-3 sentences describing what this video is generally about — the big picture themes and who would benefit from watching it",
@@ -201,7 +204,7 @@ Determine whether this video is primarily about system design/architecture. Set:
 - videoType: one of "system-design", "tutorial", "talk", "interview", "other"
 
 PHASE 2 — ALWAYS GENERATE (regardless of video type):
-1. SECTIONS: Divide the video into 5-10 meaningful sections with headings, time ranges, and key points.
+1. SECTIONS: Divide the video into 5-10 meaningful sections with headings, time ranges, key points, and sectionSummary (3-5 sentence summary of what is covered in each section).
 2. TIMESTAMPS: 15-25 entries with detailed descriptions.
 3. DEFINITIONS: 8-20 technical terms with clear explanations.
 4. CALLOUTS: 5-10 notable points (insight/warning/tip).

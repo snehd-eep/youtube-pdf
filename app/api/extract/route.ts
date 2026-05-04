@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractTranscript } from "@/lib/youtube";
 import { setCachedTranscript } from "@/lib/kv";
-import { ExtractResponse } from "@/lib/types";
+import { ExtractResponse, TranscriptEntry } from "@/lib/types";
+
+const MAX_TRANSCRIPT_CHARS = 240000;
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +18,16 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await extractTranscript(url);
+
+    const totalChars = result.transcript.reduce((sum, e) => sum + (e.text?.length || 0), 0);
+    if (totalChars > MAX_TRANSCRIPT_CHARS) {
+      const estimatedMinutes = Math.round(totalChars / 900);
+      const maxMinutes = Math.round(MAX_TRANSCRIPT_CHARS / 900);
+      return NextResponse.json(
+        { error: `This video is too long (~${Math.round(estimatedMinutes / 60 * 10) / 10} hours). We support videos up to ~4 hours. Please try a shorter video.` },
+        { status: 413 }
+      );
+    }
 
     try {
       await setCachedTranscript(result.videoId, {

@@ -533,32 +533,38 @@ function addProSections(
     );
     y += LH + 2;
 
-    const startMs = parseTimeToMs(section.startTime);
-    const endMs = parseTimeToMs(section.endTime);
-    const matchingEntries = transcript.filter(
-      (e) => e.offset >= startMs && e.offset < endMs,
-    );
-
-    if (matchingEntries.length > 0) {
-      const fullText = matchingEntries.map((e) => e.text).join(" ");
-      const allLines = doc.splitTextToSize(fullText, CW - 6);
+    if (section.sectionSummary) {
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(51, 51, 51);
+      const sumLines = doc.splitTextToSize(section.sectionSummary, CW - 6);
+      for (const line of sumLines) {
+        y = cpb(doc, y, LH + 1);
+        doc.text(line, MG, y);
+        y += LH;
+      }
+      y += 3;
+    } else {
+      const startMs = parseTimeToMs(section.startTime);
+      const endMs = parseTimeToMs(section.endTime);
+      const matchingEntries = transcript.filter(
+        (e) => e.offset >= startMs && e.offset < endMs,
+      );
 
-      const groupSize = 6;
-      for (let i = 0; i < allLines.length; i += groupSize) {
-        const paraLines = allLines.slice(i, i + groupSize);
-        for (const line of paraLines) {
+      if (matchingEntries.length > 0) {
+        const fullText = matchingEntries.map((e) => e.text).join(" ").substring(0, 500);
+        const allLines = doc.splitTextToSize(fullText + (matchingEntries.map((e) => e.text).join(" ").length > 500 ? "..." : ""), CW - 6);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(51, 51, 51);
+
+        for (const line of allLines) {
           y = cpb(doc, y, LH + 1);
           doc.text(line, MG, y);
           y += LH;
         }
-        if (i + groupSize < allLines.length) {
-          y += 3;
-        }
+        y += 3;
       }
-      y += 3;
     }
 
     if (section.keyPoints && section.keyPoints.length > 0) {
@@ -1000,23 +1006,24 @@ export async function generatePdf(
 
   if (mode === "system-design-pro" && isSystemDesignProSummary(summary)) {
     const sdpro = summary as SystemDesignProSummary;
-
-    const diagramTitles = sdpro.diagrams.map((d) => d.title);
-    const imageMap = sdpro.diagrams.length > 0 ? await fetchDiagramImages(sdpro.diagrams) : new Map();
+    const diagrams = sdpro.diagrams || [];
+    const sections = sdpro.sections || [];
+    const diagramTitles = diagrams.map((d) => d.title);
+    const imageMap = diagrams.length > 0 ? await fetchDiagramImages(diagrams) : new Map();
 
     y = addSDProCoverPage(doc, sdpro.title, date, videoId);
-    y = addTableOfContentsWithDiagrams(doc, sdpro.sections, sdpro.focusAreas, diagramTitles, y);
-    y = addSDDetectionBanner(doc, sdpro.isSystemDesign, sdpro.videoType, y);
-    y = addOverview(doc, sdpro.overview, y);
-    y = addGist(doc, sdpro.gist, y, true);
-    y = addSummary(doc, sdpro.summary, y);
+    y = addTableOfContentsWithDiagrams(doc, sections, sdpro.focusAreas || [], diagramTitles, y);
+    y = addSDDetectionBanner(doc, sdpro.isSystemDesign ?? true, sdpro.videoType || "other", y);
+    y = addOverview(doc, sdpro.overview || "", y);
+    y = addGist(doc, sdpro.gist || "", y, true);
+    y = addSummary(doc, sdpro.summary || "", y);
 
-    y = addProSections(doc, sdpro.sections, transcript || [], y);
+    y = addProSections(doc, sections, transcript || [], y);
 
-    if (sdpro.diagrams.length > 0 && sdpro.isSystemDesign) {
+    if (diagrams.length > 0 && sdpro.isSystemDesign) {
       y = secHead(doc, "ARCHITECTURE DIAGRAMS", y);
-      for (let i = 0; i < sdpro.diagrams.length; i++) {
-        const diagram = sdpro.diagrams[i];
+      for (let i = 0; i < diagrams.length; i++) {
+        const diagram = diagrams[i];
         const imgData = imageMap.get(diagram.title) || undefined;
         if (imgData) {
           imageMap.set(diagram.title, imgData);
@@ -1025,46 +1032,46 @@ export async function generatePdf(
       }
     }
 
-    y = addDefinitions(doc, sdpro.definitions, y);
-    y = addCallouts(doc, sdpro.callouts, y);
+    y = addDefinitions(doc, sdpro.definitions || [], y);
+    y = addCallouts(doc, sdpro.callouts || [], y);
 
-    if (sdpro.tradeoffs.length > 0) {
+    if ((sdpro.tradeoffs || []).length > 0) {
       y = addTradeoffs(doc, sdpro.tradeoffs, y);
     }
 
-    y = addQA(doc, sdpro.qa, y);
-    y = addTimestamps(doc, sdpro.timestamps, y);
-    addTakeaways(doc, sdpro.keyTakeaways, y);
+    y = addQA(doc, sdpro.qa || [], y);
+    y = addTimestamps(doc, sdpro.timestamps || [], y);
+    addTakeaways(doc, sdpro.keyTakeaways || [], y);
   } else if (mode === "pro" && isProSummary(summary)) {
     const pro = summary as ProSummary;
 
     y = addProCoverPage(doc, pro.title, date, videoId);
-    y = addTableOfContents(doc, pro.sections, pro.focusAreas, y);
-    y = addOverview(doc, pro.overview, y);
-    y = addGist(doc, pro.gist, y, true);
-    y = addSummary(doc, pro.summary, y);
-    y = addProSections(doc, pro.sections, transcript || [], y);
-    y = addDefinitions(doc, pro.definitions, y);
-    y = addCallouts(doc, pro.callouts, y);
-    y = addQA(doc, pro.qa, y);
-    y = addTimestamps(doc, pro.timestamps, y);
-    addTakeaways(doc, pro.keyTakeaways, y);
+    y = addTableOfContents(doc, pro.sections || [], pro.focusAreas || [], y);
+    y = addOverview(doc, pro.overview || "", y);
+    y = addGist(doc, pro.gist || "", y, true);
+    y = addSummary(doc, pro.summary || "", y);
+    y = addProSections(doc, pro.sections || [], transcript || [], y);
+    y = addDefinitions(doc, pro.definitions || [], y);
+    y = addCallouts(doc, pro.callouts || [], y);
+    y = addQA(doc, pro.qa || [], y);
+    y = addTimestamps(doc, pro.timestamps || [], y);
+    addTakeaways(doc, pro.keyTakeaways || [], y);
   } else if (mode === "system-design" && isSystemDesignSummary(summary)) {
     const sd = summary as SystemDesignSummary;
 
     y = addTitle(doc, sd.title, modeLabel, date, videoId);
-    y = addSummary(doc, sd.summary, y);
-    y = addGist(doc, sd.gist, y);
-    y = addTimestamps(doc, sd.timestamps, y);
-    y = await addDiagrams(doc, sd.diagrams, y);
-    y = addTradeoffs(doc, sd.tradeoffs, y);
-    addTakeaways(doc, sd.keyTakeaways, y);
+    y = addSummary(doc, sd.summary || "", y);
+    y = addGist(doc, sd.gist || "", y);
+    y = addTimestamps(doc, sd.timestamps || [], y);
+    y = await addDiagrams(doc, sd.diagrams || [], y);
+    y = addTradeoffs(doc, sd.tradeoffs || [], y);
+    addTakeaways(doc, sd.keyTakeaways || [], y);
   } else {
     y = addTitle(doc, summary.title, modeLabel, date, videoId);
-    y = addSummary(doc, summary.summary, y);
-    y = addGist(doc, summary.gist, y);
-    y = addTimestamps(doc, summary.timestamps, y);
-    addTakeaways(doc, summary.keyTakeaways, y);
+    y = addSummary(doc, summary.summary || "", y);
+    y = addGist(doc, summary.gist || "", y);
+    y = addTimestamps(doc, summary.timestamps || [], y);
+    addTakeaways(doc, summary.keyTakeaways || [], y);
   }
 
   const pageCount = doc.getNumberOfPages();

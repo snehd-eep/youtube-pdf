@@ -25,7 +25,9 @@ interface RazorpayOptions {
   order_id: string;
   name: string;
   description: string;
-  handler: (response: RazorpayResponse) => void;
+  handler?: (response: RazorpayResponse) => void;
+  callback_url?: string;
+  redirect?: boolean;
   modal: {
     ondismiss: () => void;
   };
@@ -111,6 +113,8 @@ export function PaymentModal({ mode, videoId, videoTitle, onSuccess, onCancel }:
                   razorpay_order_id: response.razorpay_order_id,
                   razorpay_payment_id: response.razorpay_payment_id,
                   razorpay_signature: response.razorpay_signature,
+                  videoId,
+                  mode,
                 }),
               });
 
@@ -121,6 +125,7 @@ export function PaymentModal({ mode, videoId, videoTitle, onSuccess, onCancel }:
                 localStorage.setItem(paymentKey, JSON.stringify({
                   mode,
                   videoId,
+                  razorpayOrderId: response.razorpay_order_id,
                   verifiedAt: Date.now(),
                   expiresAt: Date.now() + 24 * 60 * 60 * 1000,
                   razorpay_payment_id: response.razorpay_payment_id,
@@ -137,6 +142,7 @@ export function PaymentModal({ mode, videoId, videoTitle, onSuccess, onCancel }:
               setState("error");
             }
           },
+          callback_url: order.callbackUrl,
           modal: {
             ondismiss: () => {
               if (!cancelled) {

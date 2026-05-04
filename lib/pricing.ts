@@ -2,19 +2,26 @@ import { Mode } from "./types";
 
 export interface PricingInfo {
   mode: Mode;
-  price: number;
-  label: string;
+  priceInr: number;
+  priceUsd: number;
+  labelInr: string;
+  labelUsd: string;
   isFree: boolean;
-  currency?: string;
-  amountPaise?: number;
+  currency: string;
 }
 
 export const PRICING: Record<Mode, PricingInfo> = {
-  normal: { mode: "normal", price: 0, label: "Free", isFree: true },
-  "system-design": { mode: "system-design", price: 0, label: "Free", isFree: true },
-  "system-design-pro": { mode: "system-design-pro", price: 5, label: "₹5", isFree: false, currency: "INR", amountPaise: 500 },
-  pro: { mode: "pro", price: 5, label: "₹5", isFree: false, currency: "INR", amountPaise: 500 },
+  normal: { mode: "normal", priceInr: 0, priceUsd: 0, labelInr: "Free", labelUsd: "Free", isFree: true, currency: "INR" },
+  "system-design": { mode: "system-design", priceInr: 0, priceUsd: 0, labelInr: "Free", labelUsd: "Free", isFree: true, currency: "INR" },
+  "system-design-pro": { mode: "system-design-pro", priceInr: 5, priceUsd: 0.10, labelInr: "₹5", labelUsd: "$0.10", isFree: false, currency: "USD" },
+  pro: { mode: "pro", priceInr: 5, priceUsd: 0.10, labelInr: "₹5", labelUsd: "$0.10", isFree: false, currency: "USD" },
 };
+
+export function getPriceLabel(inrRate: number = 83): string {
+  const usdPrice = 0.10;
+  const inrPrice = Math.round(usdPrice * inrRate);
+  return `₹${inrPrice} ($${usdPrice})`;
+}
 
 export function isPaidMode(mode: Mode): boolean {
   return !PRICING[mode].isFree;
