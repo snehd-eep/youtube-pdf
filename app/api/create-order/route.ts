@@ -7,10 +7,9 @@ const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || "rzp_test_Skyk6nmjDPZZa0"
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || "9cMrKgkz4zDKP6Kk5oaW7gwu";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-async function getRedis(): Promise<Redis | null> {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
+async function getRedis(): Promise<Redis> {
+  const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAATu4AAIgcDE1OTkzMjFiZjE3NmM0ZTdlOGVlZWJlODgyNjczNjg5Ng";
   return new Redis({ url, token });
 }
 
@@ -86,9 +85,7 @@ export async function POST(request: NextRequest) {
     const order = await response.json();
 
     const redis = await getRedis();
-    if (redis) {
-      await redis.set(`order:${order.id}`, JSON.stringify({ mode, videoId }), { ex: 24 * 60 * 60 });
-    }
+    await redis.set(`order:${order.id}`, JSON.stringify({ mode, videoId }), { ex: 24 * 60 * 60 });
 
     return NextResponse.json({
       orderId: order.id,

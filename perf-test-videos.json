@@ -1,0 +1,18 @@
+[
+  { "videoId": "dQw4w9WgXcQ", "title": "Rick Astley - Never Gonna Give You Up", "mode": "normal", "duration": "~4min" },
+  { "videoId": "JGwWNGJdvx8", "title": "Ed Sheeran - Shape of You", "mode": "normal", "duration": "~5min" },
+  { "videoId": "hHIikHJV9fI", "title": "Secrets Of Successful Teamwork", "mode": "normal", "duration": "~10min" },
+  { "videoId": "rfscVS0vtbw", "title": "Learn Python - Full Course for Beginners", "mode": "normal", "duration": "~4.5hr" },
+
+  { "videoId": "dQw4w9WgXcQ", "title": "Rick Astley - Never Gonna Give You Up", "mode": "system-design", "duration": "~4min" },
+  { "videoId": "hHIikHJV9fI", "title": "Secrets Of Successful Teamwork", "mode": "system-design", "duration": "~10min" },
+  { "videoId": "rfscVS0vtbw", "title": "Learn Python - Full Course for Beginners", "mode": "system-design", "duration": "~4.5hr" },
+
+  { "videoId": "dQw4w9WgXcQ", "title": "Rick Astley - Never Gonna Give You Up", "mode": "pro", "duration": "~4min" },
+  { "videoId": "hHIikHJV9fI", "title": "Secrets Of Successful Teamwork", "mode": "pro", "duration": "~10min" },
+  { "videoId": "rfscVS0vtbw", "title": "Learn Python - Full Course for Beginners", "mode": "pro", "duration": "~4.5hr" },
+
+  { "videoId": "dQw4w9WgXcQ", "title": "Rick Astley - Never Gonna Give You Up", "mode": "system-design-pro", "duration": "~4min" },
+  { "videoId": "hHIikHJV9fI", "title": "Secrets Of Successful Teamwork", "mode": "system-design-pro", "duration": "~10min" },
+  { "videoId": "rfscVS0vtbw", "title": "Learn Python - Full Course for Beginners", "mode": "system-design-pro", "duration": "~4.5hr" }
+]

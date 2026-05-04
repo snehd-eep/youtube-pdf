@@ -2,13 +2,11 @@ import { Redis } from "@upstash/redis";
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis | null {
+function getRedis(): Redis {
   if (redis) return redis;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (!url || !token) return null;
+  const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAATu4AAIgcDE1OTkzMjFiZjE3NmM0ZTdlOGVlZWJlODgyNjczNjg5Ng";
 
   redis = new Redis({ url, token });
   return redis;
@@ -22,15 +20,10 @@ export async function storePdf(
   pdfBuffer: Buffer
 ): Promise<string> {
   const client = getRedis();
-
-  if (client) {
-    const key = `pdf_blob:${videoId}:${mode}`;
-    const base64 = pdfBuffer.toString("base64");
-    await client.set(key, base64, { ex: PDF_TTL });
-    return `redis://${key}`;
-  }
-
-  return "memory";
+  const key = `pdf_blob:${videoId}:${mode}`;
+  const base64 = pdfBuffer.toString("base64");
+  await client.set(key, base64, { ex: PDF_TTL });
+  return `redis://${key}`;
 }
 
 export async function getPdfBuffer(
@@ -38,9 +31,6 @@ export async function getPdfBuffer(
   mode: string
 ): Promise<Buffer | null> {
   const client = getRedis();
-
-  if (!client) return null;
-
   const key = `pdf_blob:${videoId}:${mode}`;
   const data = await client.get<string>(key);
 

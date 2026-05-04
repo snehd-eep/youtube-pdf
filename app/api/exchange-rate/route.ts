@@ -5,13 +5,11 @@ const EXCHANGE_RATE_TTL = 60 * 60;
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis | null {
+function getRedis(): Redis {
   if (redis) return redis;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (!url || !token) return null;
+  const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAATu4AAIgcDE1OTkzMjFiZjE3NmM0ZTdlOGVlZWJlODgyNjczNjg5Ng";
 
   redis = new Redis({ url, token });
   return redis;
@@ -32,18 +30,11 @@ async function fetchExchangeRate(): Promise<number> {
 export async function GET(request: NextRequest) {
   try {
     const client = getRedis();
-    let rate: number | null = null;
-
-    if (client) {
-      rate = await client.get<number>("exchange_rate:inr");
-    }
+    let rate: number | null = await client.get<number>("exchange_rate:inr");
 
     if (!rate) {
       rate = await fetchExchangeRate();
-      
-      if (client) {
-        await client.set("exchange_rate:inr", rate, { ex: EXCHANGE_RATE_TTL });
-      }
+      await client.set("exchange_rate:inr", rate, { ex: EXCHANGE_RATE_TTL });
     }
 
     return NextResponse.json({

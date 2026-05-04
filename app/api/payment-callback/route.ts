@@ -66,10 +66,8 @@ export async function POST(request: NextRequest) {
 async function getRedisOrderData(orderId: string): Promise<{ mode: string; videoId: string } | null> {
   try {
     const { Redis } = await import("@upstash/redis");
-    const url = process.env.UPSTASH_REDIS_REST_URL;
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-    if (!url || !token) return null;
-
+    const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAATu4AAIgcDE1OTkzMjFiZjE3NmM0ZTdlOGVlZWJlODgyNjczNjg5Ng";
     const redis = new Redis({ url, token });
     const key = `order:${orderId}`;
     const data = await redis.get<{ mode: string; videoId: string }>(key);

@@ -3,13 +3,11 @@ import { Redis } from "@upstash/redis";
 
 let redis: Redis | null = null;
 
-function getRedis(): Redis | null {
+function getRedis(): Redis {
   if (redis) return redis;
 
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (!url || !token) return null;
+  const url = process.env.UPSTASH_REDIS_REST_URL || "https://included-dinosaur-80824.upstash.io";
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || "gQAAAAAAATu4AAIgcDE1OTkzMjFiZjE3NmM0ZTdlOGVlZWJlODgyNjczNjg5Ng";
 
   redis = new Redis({ url, token });
   return redis;
@@ -25,10 +23,6 @@ export async function POST(request: NextRequest) {
     }
 
     const client = getRedis();
-    if (!client) {
-      return NextResponse.json({ error: "Redis not configured" }, { status: 503 });
-    }
-
     const key = `payment:${razorpayOrderId}:${videoId}:${mode}`;
     await client.del(key);
 
