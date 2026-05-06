@@ -15,9 +15,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!mode || (mode !== "normal" && mode !== "system-design" && mode !== "system-design-pro" && mode !== "pro")) {
+    const VALID_MODES = ["normal", "system-design", "system-design-pro", "pro", "technical-course", "technical-course-pro"];
+    if (!mode || !VALID_MODES.includes(mode)) {
       return NextResponse.json(
-        { error: "Missing or invalid 'mode' field. Must be 'normal', 'system-design', 'system-design-pro', or 'pro'" },
+        { error: `Missing or invalid 'mode' field. Must be one of: ${VALID_MODES.join(", ")}` },
         { status: 400 }
       );
     }
