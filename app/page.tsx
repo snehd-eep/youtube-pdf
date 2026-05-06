@@ -330,13 +330,33 @@ function HomeContent() {
                     </svg>
                     <div>
                       <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        System Design Pro — ₹5 ($0.10)/PDF
+                        System Design Pro — ~₹8 ($0.10)/PDF
                       </h4>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                         Auto-detects system design videos and generates architecture,
                         sequence, class, ER, and state diagrams tailored to the content.
                         Full video content as a structured document with sections, definitions,
                         Q&amp;A, and callouts. Payment required to download PDF.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {mode === "technical-course-pro" && (
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                  <div className="flex gap-3">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.499 5.221 59.878 59.878 0 00-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" />
+                    </svg>
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                        Technical Course Pro — ~₹12 ($0.15)/PDF
+                      </h4>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                        Complete course with code examples, exercises, best practices,
+                        prerequisites, implementation steps, common pitfalls, and resources.
+                        Payment required to download PDF.
                       </p>
                     </div>
                   </div>
@@ -351,7 +371,7 @@ function HomeContent() {
                     </svg>
                     <div>
                       <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        Pro — ₹5 ($0.10)/PDF
+                        Pro — ~₹8 ($0.10)/PDF
                       </h4>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
                         The entire video content as a structured, book-like PDF. Includes sections,
