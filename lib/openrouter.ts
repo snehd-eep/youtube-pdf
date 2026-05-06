@@ -74,7 +74,7 @@ Video ID: ${videoId}
 
 ${formattedTranscript}`;
 
-  const maxRetries = 2;
+  const maxRetries = 1;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {

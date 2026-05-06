@@ -419,6 +419,53 @@ export function formatTranscript(transcript: TranscriptEntry[]): string {
     .join("\n");
 }
 
+export function trimTranscript(transcript: TranscriptEntry[], maxChars: number): TranscriptEntry[] {
+  const totalChars = transcript.reduce((sum, e) => sum + (e.text?.length || 0), 0);
+  if (totalChars <= maxChars) return transcript;
+
+  // Keep first ~60% and last ~40% to preserve beginning context and conclusion
+  const firstChunk = Math.floor(maxChars * 0.6);
+  const lastChunk = maxChars - firstChunk;
+
+  const result: TranscriptEntry[] = [];
+  let charCount = 0;
+
+  // First chunk: from the start
+  for (const entry of transcript) {
+    const entryLen = (entry.text?.length || 0) + 8; // +8 for timestamp overhead
+    if (charCount + entryLen > firstChunk) break;
+    result.push(entry);
+    charCount += entryLen;
+  }
+
+  // Last chunk: from the end
+  const tailEntries: TranscriptEntry[] = [];
+  let tailCount = 0;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const entryLen = (transcript[i].text?.length || 0) + 8;
+    if (tailCount + entryLen > lastChunk) break;
+    tailEntries.unshift(transcript[i]);
+    tailCount += entryLen;
+  }
+
+  // Add separator if we skipped middle
+  if (result.length + tailEntries.length < transcript.length) {
+    const lastOffset = result[result.length - 1]?.offset || 0;
+    const firstTailOffset = tailEntries[0]?.offset || lastOffset;
+    const gap = Math.round((firstTailOffset - lastOffset) / 60000);
+    result.push({
+      text: `[...${gap} minutes of content omitted...]`,
+      offset: lastOffset + Math.round((firstTailOffset - lastOffset) / 2),
+      duration: firstTailOffset - lastOffset,
+    });
+    result.push(...tailEntries);
+  } else {
+    result.push(...tailEntries);
+  }
+
+  return result;
+}
+
 let genAI: GoogleGenerativeAI | null = null;
 
 function getGenAI(): GoogleGenerativeAI {
@@ -591,7 +638,12 @@ export async function summarizeTranscript(
   videoId: string
 ): Promise<SummaryResult> {
   const ai = getGenAI();
-  const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = ai.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  });
 
   let prompt: string;
   switch (mode) {
@@ -617,7 +669,15 @@ export async function summarizeTranscript(
       prompt = NORMAL_PROMPT;
   }
 
-  const formattedTranscript = formatTranscript(transcript);
+  // Truncate very long transcripts to stay within token limits and avoid timeouts
+  // ~4 chars per token, Gemini 2.5 Flash has 1M context but output is limited
+  // Cap at 120K chars (~30K tokens input) which covers ~2hr videos comfortably
+  const MAX_TRANSCRIPT_CHARS = 120000;
+  const formattedTranscript = formatTranscript(
+    transcript.length * 30 > MAX_TRANSCRIPT_CHARS
+      ? trimTranscript(transcript, MAX_TRANSCRIPT_CHARS)
+      : transcript
+  );
 
   const fullPrompt = `${prompt}
 Video Title: ${title}
@@ -625,8 +685,8 @@ Video ID: ${videoId}
 
 ${formattedTranscript}`;
 
-  const maxRetries = 3;
-  const baseDelay = 2000;
+  const maxRetries = 1;
+  const baseDelay = 1500;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {

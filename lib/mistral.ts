@@ -78,7 +78,7 @@ Video ID: ${videoId}
 
 ${formattedTranscript}`;
 
-  const maxRetries = 2;
+  const maxRetries = 1;
   let lastError: Error | null = null;
 
   const models = [pickMistralModel(transcriptChars, mode)];

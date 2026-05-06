@@ -531,17 +531,18 @@ function isServerless(): boolean {
   );
 }
 
-export async function extractTranscript(
-  url: string
+async function extractTranscriptWithRetry(
+  url: string,
+  maxRetries: number = 1
 ): Promise<ExtractResponse> {
   const videoId = extractVideoId(url);
 
   type StrategyResult = { tracks: CaptionTrack[]; title: string } | null;
   type StrategyFn = () => Promise<StrategyResult>;
 
-  // On serverless (Vercel), direct strategies always fail because YouTube
-  // blocks serverless IPs. Skip them to avoid wasting 16+ seconds on timeouts.
-  const trackStrategies: StrategyFn[] = isServerless()
+  const onServerless = isServerless();
+
+  const trackStrategies: StrategyFn[] = onServerless
     ? [
         () => tryInnerTubeViaProxy(videoId),
         () => tryWebPageViaProxy(videoId),
@@ -555,43 +556,48 @@ export async function extractTranscript(
 
   const errors: string[] = [];
 
-  for (const strategy of trackStrategies) {
-    const result = await strategy();
-    if (!result || result.tracks.length === 0) continue;
-
-    // Deduplicate tracks by baseUrl (before query params) and prioritize
-    const preferred = selectCaptionTrack(result.tracks);
-    const seen = new Set<string>();
-    const uniqueTracks: CaptionTrack[] = [];
-
-    // Add preferred track first
-    const preferredKey = preferred.baseUrl.split("&")[0];
-    seen.add(preferredKey);
-    uniqueTracks.push(preferred);
-
-    // Add remaining unique tracks
-    for (const t of result.tracks) {
-      const key = t.baseUrl.split("&")[0];
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueTracks.push(t);
-      }
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = onServerless ? 2000 : 1000;
+      console.log(`[Extract] Retry attempt ${attempt}/${maxRetries} for ${videoId} after ${delay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
-    for (const track of uniqueTracks) {
-      const lang = track.languageCode || "en";
+    for (const strategy of trackStrategies) {
+      const result = await strategy();
+      if (!result || result.tracks.length === 0) continue;
 
-      try {
-        const xml = await fetchCaptionXml(track);
-        const transcript = parseXmlTranscript(xml, lang);
+      const preferred = selectCaptionTrack(result.tracks);
+      const seen = new Set<string>();
+      const uniqueTracks: CaptionTrack[] = [];
 
-        if (transcript && transcript.length > 0) {
-          return { videoId, title: result.title, transcript };
+      const preferredKey = preferred.baseUrl.split("&")[0];
+      seen.add(preferredKey);
+      uniqueTracks.push(preferred);
+
+      for (const t of result.tracks) {
+        const key = t.baseUrl.split("&")[0];
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueTracks.push(t);
         }
-      } catch (e) {
-        const msg = (e as Error).message;
-        console.log(`Caption fetch failed for ${lang}: ${msg}`);
-        errors.push(`${lang}: ${msg}`);
+      }
+
+      for (const track of uniqueTracks) {
+        const lang = track.languageCode || "en";
+
+        try {
+          const xml = await fetchCaptionXml(track);
+          const transcript = parseXmlTranscript(xml, lang);
+
+          if (transcript && transcript.length > 0) {
+            return { videoId, title: result.title, transcript };
+          }
+        } catch (e) {
+          const msg = (e as Error).message;
+          console.log(`Caption fetch failed for ${lang}: ${msg}`);
+          errors.push(`attempt${attempt} ${strategy.name || "strategy"} ${lang}: ${msg}`);
+        }
       }
     }
   }
@@ -602,4 +608,10 @@ export async function extractTranscript(
       `2) YouTube is blocking server requests, 3) The video is private. ` +
       `Try a different video or try again later.`
   );
+}
+
+export async function extractTranscript(
+  url: string
+): Promise<ExtractResponse> {
+  return extractTranscriptWithRetry(url, 1);
 }

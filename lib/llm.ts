@@ -9,6 +9,20 @@ function isConfigured(envVar: string): boolean {
   return !!process.env[envVar];
 }
 
+const PROVIDER_TIMEOUT_MS = 45000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((_resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms / 1000}s`));
+    }, ms);
+    promise.then(
+      (result) => { clearTimeout(timer); _resolve(result); },
+      (error) => { clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
 export async function summarizeWithFailover(
   transcript: TranscriptEntry[],
   mode: Mode,
@@ -34,15 +48,15 @@ export async function summarizeWithFailover(
   for (const provider of providers) {
     try {
       console.log(`[LLM] Trying ${provider.name} (mode: ${mode})...`);
-      const result = await provider.fn();
+      const result = await withTimeout(provider.fn(), PROVIDER_TIMEOUT_MS, provider.name);
       console.log(`[LLM] Success with ${provider.name}`);
       return result;
     } catch (error) {
       const err = error as Error;
       lastError = err;
 
-      if (err.message.includes("rate limit") || err.message.includes("429") || err.message.includes("quota") || err.message.includes("Too Many Requests") || err.message.includes("413") || err.message.includes("too large") || err.message.includes("404") || err.message.includes("does not exist") || err.message.includes("No endpoints") || err.message.includes("422") || err.message.includes("failed after")) {
-        console.log(`[LLM] ${provider.name} rate-limited/unavailable, trying next...`);
+      if (err.message.includes("rate limit") || err.message.includes("429") || err.message.includes("quota") || err.message.includes("Too Many Requests") || err.message.includes("413") || err.message.includes("too large") || err.message.includes("404") || err.message.includes("does not exist") || err.message.includes("No endpoints") || err.message.includes("422") || err.message.includes("failed after") || err.message.includes("timed out")) {
+        console.log(`[LLM] ${provider.name} rate-limited/unavailable/timed out, trying next...`);
         continue;
       }
 
