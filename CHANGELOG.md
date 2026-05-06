@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-05-07
+
+### Fixed
+- **Transcript extraction failing on Vercel** — Direct YouTube API calls always fail from serverless IPs; now skips direct strategies on Vercel and goes straight to Cloudflare Worker proxy, saving 16+ seconds of wasted timeouts
+- **Caption XML fetch unreliable** — When preferred caption track's XML fails, now tries all unique tracks before giving up instead of moving to next strategy
+- **Caption fetch order wrong on serverless** — Proxy-first on Vercel (direct as fallback), direct-first on local
+- **Repeated extraction on same video** — Extract route now checks Redis cache before attempting extraction, avoiding redundant YouTube API calls
+- **Direct fetch timeout too long on serverless** — Reduced from 8s to 5s for fallback direct fetches on Vercel
+
 ## [2.0.0] - 2026-05-07
 
 ### Added
