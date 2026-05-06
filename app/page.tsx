@@ -270,7 +270,7 @@ function HomeContent() {
 
   const isModeMismatch = error.includes("SD_PRO_MISMATCH") || error.includes("TC_PRO_MISMATCH");
 
-  const isInsufficientContent = error.toLowerCase().includes("insufficient content") || error.toLowerCase().includes("doesn't have enough");
+  const isInsufficientContent = error.includes("INSUFFICIENT_CONTENT") || error.toLowerCase().includes("insufficient content") || error.toLowerCase().includes("doesn't have enough");
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -510,7 +510,7 @@ function HomeContent() {
                         : isModeMismatch
                           ? "Mode mismatch"
                           : isInsufficientContent
-                            ? "Not enough content"
+                            ? "Not enough content for this mode"
                             : isVideoTooLong
                               ? "Video too long"
                               : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
@@ -519,17 +519,24 @@ function HomeContent() {
                       }
                     </h3>
                     <p className={`text-sm mt-1 ${
-                      isNoCaptionsError || error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429") || isVideoTooLong
+                      isNoCaptionsError || isInsufficientContent || error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429") || isVideoTooLong
                         ? "text-amber-700 dark:text-amber-400"
                         : "text-red-600 dark:text-red-400"
                     }`}>
                       {isNoCaptionsError
                         ? "This video doesn't have captions available (not even auto-generated). We can only process videos that have YouTube captions. Try a different video."
-                        : isVideoTooLong
-                          ? error
-                          : error
+                        : isInsufficientContent
+                          ? error.replace("INSUFFICIENT_CONTENT:", "").trim()
+                          : isVideoTooLong
+                            ? error
+                            : error
                       }
                     </p>
+                    {isInsufficientContent && (
+                      <p className="text-xs mt-2 text-amber-600 dark:text-amber-500">
+                        Normal and Pro modes work with any video type — give them a try!
+                      </p>
+                    )}
                     {(error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) && (
                       <p className="text-xs mt-2 text-amber-600 dark:text-amber-500">
                         The free Gemini tier allows 15 requests per minute. Wait about 60 seconds before retrying.

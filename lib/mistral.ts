@@ -111,8 +111,19 @@ ${formattedTranscript}`;
         
         // Check for insufficient content
         if (parsed.insufficientContent) {
+          const reason = parsed.reason || "";
+          const modeLabel = mode === "system-design-pro" ? "System Design Pro"
+            : mode === "system-design" ? "System Design"
+              : mode === "technical-course-pro" ? "Technical Course Pro"
+                : mode === "technical-course" ? "Technical Course"
+                  : mode === "pro" ? "Pro" : mode;
+          const suggestion = mode === "system-design-pro" || mode === "system-design"
+            ? "Try Normal or Pro mode instead — they work with any video type."
+            : mode === "technical-course-pro" || mode === "technical-course"
+              ? "Try Normal or Pro mode instead — they work with any video type."
+              : "";
           throw new Error(
-            `This video doesn't have enough content for ${mode} mode. ${parsed.reason || ""}`
+            `INSUFFICIENT_CONTENT:This video doesn't have enough content for ${modeLabel} mode. ${reason}${suggestion ? " " + suggestion : ""}`.trim()
           );
         }
         

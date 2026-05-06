@@ -40,12 +40,17 @@ export async function POST(request: NextRequest) {
     if (mode !== "normal" && mode !== "system-design" && mode !== "technical-course") {
       const sectionsIncluded = summary.sectionsIncluded || [];
       if (sectionsIncluded.length < 3) {
+        const modeLabel = mode === "system-design-pro" ? "System Design Pro"
+          : mode === "technical-course-pro" ? "Technical Course Pro"
+            : mode === "pro" ? "Pro" : mode;
+        const suggestion = mode === "system-design-pro"
+          ? "Try Normal or Pro mode instead — they work with any video type."
+          : mode === "technical-course-pro"
+            ? "Try Normal or Pro mode instead — they work with any video type."
+            : "";
         return NextResponse.json(
           { 
-            error: "Insufficient content",
-            message: `This video doesn't have enough structured content for ${mode} mode.`,
-            sectionsDetected: sectionsIncluded.length,
-            suggestion: "Try Normal mode for basic summaries or choose a different video."
+            error: `INSUFFICIENT_CONTENT:Only ${sectionsIncluded.length} sections could be identified for ${modeLabel} mode. ${suggestion}`.trim(),
           },
           { status: 400 }
         );
@@ -54,11 +59,10 @@ export async function POST(request: NextRequest) {
 
     // Handle mode mismatch errors
     if (summary.insufficientContent) {
+      const reason = summary.reason || "This video doesn't have enough content for the selected mode.";
       return NextResponse.json(
         {
-          error: "Insufficient content",
-          message: summary.reason || "This video doesn't have enough content for the selected mode.",
-          suggestion: "Try a different mode or video."
+          error: `INSUFFICIENT_CONTENT:${reason}`,
         },
         { status: 400 }
       );
