@@ -938,18 +938,33 @@ function addLessons(doc: jsPDF, lessons: Lesson[], y: number, isPro: boolean): n
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 33, 62);
-    doc.text(lesson.title, MG, y);
+    const titleLines = doc.splitTextToSize(lesson.title, CW - 40);
+    doc.text(titleLines[0], MG, y);
     doc.setFontSize(8);
     doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
     doc.text(`${lesson.startTime} - ${lesson.endTime}`, PW - MG, y, { align: "right" });
     y += LH + 2;
+    for (let i = 1; i < titleLines.length; i++) {
+      y = cpb(doc, y, LH);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(22, 33, 62);
+      doc.text(titleLines[i], MG, y);
+      y += LH;
+    }
     
     if (lesson.concepts && lesson.concepts.length > 0) {
       doc.setFontSize(9);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(80, 80, 80);
-      doc.text(`Concepts: ${lesson.concepts.join(", ")}`, MG, y);
-      y += LH + 2;
+      const conceptText = `Concepts: ${lesson.concepts.join(", ")}`;
+      const conceptLines = doc.splitTextToSize(conceptText, CW - 4);
+      for (const line of conceptLines) {
+        y = cpb(doc, y, LH);
+        doc.text(line, MG, y);
+        y += LH;
+      }
+      y += 2;
     }
     
     if (lesson.keyPoints && lesson.keyPoints.length > 0) {
@@ -957,9 +972,12 @@ function addLessons(doc: jsPDF, lessons: Lesson[], y: number, isPro: boolean): n
       doc.setFont("helvetica", "normal");
       doc.setTextColor(51, 51, 51);
       for (const point of lesson.keyPoints) {
-        y = cpb(doc, y, LH);
-        doc.text(`• ${point}`, MG + 4, y);
-        y += LH;
+        const bulletLines = doc.splitTextToSize(`• ${point}`, CW - 8);
+        for (const line of bulletLines) {
+          y = cpb(doc, y, LH);
+          doc.text(line, MG + 4, y);
+          y += LH;
+        }
       }
       y += 2;
     }
@@ -1023,79 +1041,97 @@ function addLessons(doc: jsPDF, lessons: Lesson[], y: number, isPro: boolean): n
       // Pitfalls
       if (lesson.pitfalls && lesson.pitfalls.length > 0) {
         y += 2;
-        doc.setFillColor(254, 242, 242);
-        doc.setDrawColor(220, 38, 38);
-        const pitfallLines = lesson.pitfalls.length;
-        const boxHeight = pitfallLines * LH + 10;
-        y = cpb(doc, y, boxHeight);
-        doc.roundedRect(MG + 2, y - 3, CW - 4, boxHeight, 2, 2, "FD");
-        
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(153, 27, 27);
-        doc.text("⚠ Common Pitfalls:", MG + 5, y + 2);
+        doc.text("⚠ Common Pitfalls:", MG + 5, y);
         y += LH + 2;
-        
+
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(220, 38, 38);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(80, 80, 80);
+
+        const allPitfallLines: string[] = [];
         for (const pitfall of lesson.pitfalls) {
-          y = cpb(doc, y, LH);
-          doc.text(`• ${pitfall}`, MG + 5, y);
+          const lines = doc.splitTextToSize(`• ${pitfall}`, CW - 14);
+          allPitfallLines.push(...lines);
+        }
+        const pitfallBoxH = allPitfallLines.length * LH + 6;
+        y = cpb(doc, y, pitfallBoxH);
+        doc.roundedRect(MG + 2, y - 3, CW - 4, pitfallBoxH, 2, 2, "FD");
+
+        doc.setFontSize(9);
+        doc.setTextColor(80, 80, 80);
+        for (const line of allPitfallLines) {
+          doc.text(line, MG + 5, y + 1);
           y += LH;
         }
-        y += 2;
+        y += 4;
       }
       
       // Best practices
       if (lesson.bestPractices && lesson.bestPractices.length > 0) {
         y += 2;
-        doc.setFillColor(236, 253, 245);
-        doc.setDrawColor(22, 163, 74);
-        const bpLines = lesson.bestPractices.length;
-        const boxHeight = bpLines * LH + 10;
-        y = cpb(doc, y, boxHeight);
-        doc.roundedRect(MG + 2, y - 3, CW - 4, boxHeight, 2, 2, "FD");
-        
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(22, 101, 52);
-        doc.text("✓ Best Practices:", MG + 5, y + 2);
+        doc.text("✓ Best Practices:", MG + 5, y);
         y += LH + 2;
-        
+
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(22, 163, 74);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(80, 80, 80);
+
+        const allBpLines: string[] = [];
         for (const bp of lesson.bestPractices) {
-          y = cpb(doc, y, LH);
-          doc.text(`• ${bp}`, MG + 5, y);
+          const lines = doc.splitTextToSize(`• ${bp}`, CW - 14);
+          allBpLines.push(...lines);
+        }
+        const bpBoxH = allBpLines.length * LH + 6;
+        y = cpb(doc, y, bpBoxH);
+        doc.roundedRect(MG + 2, y - 3, CW - 4, bpBoxH, 2, 2, "FD");
+
+        doc.setFontSize(9);
+        doc.setTextColor(80, 80, 80);
+        for (const line of allBpLines) {
+          doc.text(line, MG + 5, y + 1);
           y += LH;
         }
-        y += 2;
+        y += 4;
       }
       
       // Exercise suggestions
       if (lesson.exerciseSuggestions && lesson.exerciseSuggestions.length > 0) {
         y += 2;
-        doc.setFillColor(255, 251, 235);
-        doc.setDrawColor(217, 119, 6);
-        const exLines = lesson.exerciseSuggestions.length;
-        const boxHeight = exLines * LH + 10;
-        y = cpb(doc, y, boxHeight);
-        doc.roundedRect(MG + 2, y - 3, CW - 4, boxHeight, 2, 2, "FD");
-        
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(146, 64, 14);
-        doc.text("📝 Try It Yourself:", MG + 5, y + 2);
+        doc.text("📝 Try It Yourself:", MG + 5, y);
         y += LH + 2;
-        
+
+        doc.setFillColor(255, 251, 235);
+        doc.setDrawColor(217, 119, 6);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(80, 80, 80);
+
+        const allExLines: string[] = [];
         for (const ex of lesson.exerciseSuggestions) {
-          y = cpb(doc, y, LH);
-          doc.text(`• ${ex}`, MG + 5, y);
+          const lines = doc.splitTextToSize(`• ${ex}`, CW - 14);
+          allExLines.push(...lines);
+        }
+        const exBoxH = allExLines.length * LH + 6;
+        y = cpb(doc, y, exBoxH);
+        doc.roundedRect(MG + 2, y - 3, CW - 4, exBoxH, 2, 2, "FD");
+
+        doc.setFontSize(9);
+        doc.setTextColor(80, 80, 80);
+        for (const line of allExLines) {
+          doc.text(line, MG + 5, y + 1);
           y += LH;
         }
-        y += 2;
+        y += 4;
       }
     }
     
@@ -1203,20 +1239,27 @@ function addCommonPitfalls(doc: jsPDF, pitfalls: string[], y: number): number {
   
   y = secHead(doc, "COMMON PITFALLS", y, GOLD);
   
+  const allLines: string[] = [];
+  for (const pitfall of pitfalls) {
+    const lines = doc.splitTextToSize(`⚠ ${pitfall}`, CW - 12);
+    allLines.push(...lines);
+  }
+
   doc.setFillColor(254, 242, 242);
   doc.setDrawColor(220, 38, 38);
-  const boxHeight = pitfalls.length * LH + 10;
+  const boxHeight = allLines.length * LH + 10;
   y = cpb(doc, y, boxHeight);
   doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
   
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(80, 80, 80);
-  for (const pitfall of pitfalls) {
-    y = cpb(doc, y, LH);
-    doc.text(`⚠ ${pitfall}`, MG + 5, y);
-    y += LH;
+  let lineY = y + 2;
+  for (const line of allLines) {
+    doc.text(line, MG + 5, lineY);
+    lineY += LH;
   }
+  y = lineY + 4;
   
   return sep(doc, y);
 }
