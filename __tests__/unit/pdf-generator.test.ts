@@ -3,7 +3,12 @@ import { generatePdf } from "@/lib/pdf-generator";
 import { NormalSummary, SystemDesignSummary } from "@/lib/types";
 
 const normalSummary: NormalSummary = {
+  mode: "normal",
   title: "Test Video: Understanding APIs",
+  videoType: "other",
+  sectionsIncluded: ["overview", "summary", "timestamps", "keyTakeaways"],
+  sectionsSkipped: [],
+  sectionMetadata: [],
   summary: "This video explains the basics of APIs and how they work in modern web development.",
   timestamps: [
     { time: "00:00", topic: "Introduction", description: "Overview of the video content" },
@@ -15,11 +20,15 @@ const normalSummary: NormalSummary = {
     "REST is the most common API paradigm",
     "Always version your APIs",
   ],
-  gist: "APIs are the backbone of modern software communication",
 };
 
 const systemDesignSummary: SystemDesignSummary = {
+  mode: "system-design",
   title: "Designing a URL Shortener",
+  videoType: "system-design",
+  sectionsIncluded: ["overview", "summary", "diagrams", "tradeoffs", "keyTakeaways"],
+  sectionsSkipped: [],
+  sectionMetadata: [],
   summary: "This video covers the system design of a URL shortening service like bit.ly.",
   timestamps: [
     { time: "00:00", topic: "Requirements", description: "Functional and non-functional requirements" },
@@ -43,7 +52,6 @@ const systemDesignSummary: SystemDesignSummary = {
     "URL shorteners use encoding to convert long URLs",
     "Caching is critical for read-heavy workloads",
   ],
-  gist: "A URL shortener trades storage for convenience",
 };
 
 describe("generatePdf", () => {

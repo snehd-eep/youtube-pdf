@@ -6,7 +6,7 @@ import { PRICING, isPaidMode } from "@/lib/pricing";
 interface PdfPreviewProps {
   summary: {
     title: string;
-    gist: string;
+    overview?: string;
     keyTakeaways: string[];
   } | null;
   pdfBuffer: ArrayBuffer | null;
@@ -41,11 +41,13 @@ export function PdfPreview({
           <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mb-3">
             {summary.title}
           </h2>
-          <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 mb-4">
-            <p className="text-sm text-indigo-800 dark:text-indigo-300 italic">
-              {summary.gist}
-            </p>
-          </div>
+          {summary.overview && (
+            <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 mb-4">
+              <p className="text-sm text-indigo-800 dark:text-indigo-300 italic">
+                {summary.overview}
+              </p>
+            </div>
+          )}
           {summary.keyTakeaways.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">

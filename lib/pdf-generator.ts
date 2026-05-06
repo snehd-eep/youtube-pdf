@@ -1,9 +1,27 @@
 import { jsPDF } from "jspdf";
 import {
-  SummaryResult, isSystemDesignSummary, isProSummary, isSystemDesignProSummary,
-  SystemDesignSummary, ProSummary, SystemDesignProSummary,
-  MermaidDiagram, Tradeoff, ProSection, Definition, Callout, QA,
-  TranscriptEntry,
+  SummaryResult,
+  Mode,
+  TimestampEntry,
+  Tradeoff,
+  MermaidDiagram,
+  ProSection,
+  Definition,
+  Callout,
+  QA,
+  CapacityEstimate,
+  ApiEndpoint,
+  DataEntity,
+  FailureScenario,
+  NFR,
+  Lesson,
+  KeyConcept,
+  isNormalSummary,
+  isSystemDesignSummary,
+  isProSummary,
+  isSystemDesignProSummary,
+  isTechnicalCourseSummary,
+  isTechnicalCourseProSummary,
 } from "./types";
 import { fetchDiagramImages } from "./mermaid";
 
@@ -18,8 +36,21 @@ const LHSM = 4.5;
 const PGAP = 6;
 const SGAP = 10;
 const GOLD = { r: 180, g: 138, b: 0 };
+const YELLOW_HIGHLIGHT = { r: 255, g: 241, b: 118 }; // #FFF176
 
-// ─── Helpers ─────────────────────────────────────────────────────
+// Soft page limits by mode
+const RECOMMENDED_PAGES: Record<Mode, number> = {
+  normal: 5,
+  pro: 10,
+  "system-design": 8,
+  "system-design-pro": 15,
+  "technical-course": 8,
+  "technical-course-pro": 12,
+};
+
+const MAX_OVERFLOW = 3;
+
+// ─── Helper Functions ────────────────────────────────────────────
 function cpb(doc: jsPDF, y: number, needed: number): number {
   if (y + needed > MY) {
     doc.addPage();
@@ -36,12 +67,7 @@ function sep(doc: jsPDF, y: number): number {
   return y + 8;
 }
 
-function secHead(
-  doc: jsPDF,
-  text: string,
-  y: number,
-  clr?: { r: number; g: number; b: number },
-): number {
+function secHead(doc: jsPDF, text: string, y: number, color?: { r: number; g: number; b: number }): number {
   y = cpb(doc, y, 20);
   y += 2;
   doc.setFontSize(12);
@@ -49,7 +75,7 @@ function secHead(
   doc.setTextColor(22, 33, 62);
   doc.text(text, MG, y);
   y += 3;
-  const c = clr || { r: 99, g: 102, b: 241 };
+  const c = color || { r: 99, g: 102, b: 241 };
   doc.setDrawColor(c.r, c.g, c.b);
   doc.setLineWidth(0.8);
   doc.line(MG, y, MG + 30, y);
@@ -57,122 +83,197 @@ function secHead(
   return y;
 }
 
-function parseTimeToMs(time: string): number {
-  const parts = time.split(":");
-  if (parts.length === 2) {
-    const minutes = parseInt(parts[0], 10);
-    const seconds = parseInt(parts[1], 10);
-    return (minutes * 60 + seconds) * 1000;
+function addHighlightedText(doc: jsPDF, text: string, x: number, y: number, maxWidth: number): number {
+  // Parse {critical} markers and apply yellow highlighting
+  const regex = /\{critical\}(.*?)\{\/critical\}/g;
+  let match;
+  let lastIndex = 0;
+  const segments: { text: string; highlight: boolean }[] = [];
+  
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index), highlight: false });
+    }
+    segments.push({ text: match[1], highlight: true });
+    lastIndex = match.index + match[0].length;
   }
-  if (parts.length === 3) {
-    const hours = parseInt(parts[0], 10);
-    const minutes = parseInt(parts[1], 10);
-    const seconds = parseInt(parts[2], 10);
-    return (hours * 3600 + minutes * 60 + seconds) * 1000;
+  
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex), highlight: false });
   }
-  return 0;
+  
+  // Render segments
+  let currentY = y;
+  for (const segment of segments) {
+    const lines = doc.splitTextToSize(segment.text, maxWidth);
+    
+    if (segment.highlight) {
+      // Draw yellow background
+      doc.setFillColor(YELLOW_HIGHLIGHT.r, YELLOW_HIGHLIGHT.g, YELLOW_HIGHLIGHT.b);
+      for (const line of lines) {
+        const textWidth = doc.getTextWidth(line);
+        doc.roundedRect(x - 1, currentY - 3, textWidth + 2, LH + 1, 1, 1, "F");
+        doc.text(line, x, currentY);
+        currentY = cpb(doc, currentY + LH, LH);
+      }
+    } else {
+      for (const line of lines) {
+        doc.text(line, x, currentY);
+        currentY = cpb(doc, currentY + LH, LH);
+      }
+    }
+  }
+  
+  return currentY;
 }
 
-// ─── Normal / System-Design Mode ─────────────────────────────────
-function addTitle(
-  doc: jsPDF,
-  title: string,
-  mode: string,
-  date: string,
-  videoId: string,
-): number {
-  let y = 25;
+function processReferences(text: string): string {
+  // Replace [REF:section-title] with readable reference
+  return text.replace(/\[REF:([^\]]+)\]/g, "(See $1)");
+}
 
-  doc.setFontSize(20);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(26, 26, 46);
-  const titleLines = doc.splitTextToSize(title, CW);
-  for (const line of titleLines) {
-    doc.text(line, MG, y);
-    y += 7.5;
+// ─── Cover Page ──────────────────────────────────────────────────
+function addCoverPage(doc: jsPDF, title: string, mode: Mode, videoId: string, _y: number): number {
+  const date = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  
+  const modeLabels: Record<Mode, string> = {
+    normal: "Normal",
+    pro: "Pro",
+    "system-design": "System Design",
+    "system-design-pro": "System Design Pro",
+    "technical-course": "Technical Course",
+    "technical-course-pro": "Technical Course Pro",
+  };
+  
+  const isPro = mode.includes("pro");
+  
+  if (isPro) {
+    // Pro-style cover
+    doc.setFontSize(36);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text(modeLabels[mode].toUpperCase(), PW / 2, 80, { align: "center" });
+    
+    doc.setFontSize(22);
+    doc.setTextColor(26, 26, 46);
+    const titleLines = doc.splitTextToSize(title, CW);
+    let titleY = 95;
+    for (const line of titleLines) {
+      doc.text(line, PW / 2, titleY, { align: "center" });
+      titleY += 9;
+    }
+    titleY += 5;
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 100, 100);
+    doc.text(`${date}  |  Video ID: ${videoId}`, PW / 2, titleY, { align: "center" });
+    
+    doc.setDrawColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.setLineWidth(1);
+    doc.line(PW / 2 - 40, titleY + 8, PW / 2 + 40, titleY + 8);
+  } else {
+    // Standard cover
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(26, 26, 46);
+    const titleLines = doc.splitTextToSize(title, CW);
+    let titleY = 40;
+    for (const line of titleLines) {
+      doc.text(line, MG, titleY);
+      titleY += 7.5;
+    }
+    titleY += 2;
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(120, 120, 120);
+    doc.text(`Generated: ${date}  |  Mode: ${modeLabels[mode]}  |  Video ID: ${videoId}`, MG, titleY);
   }
-  y += 2;
+  
+  doc.addPage();
+  return MG + 5;
+}
 
-  doc.setFontSize(9);
+// ─── Dynamic Section Renderers ───────────────────────────────────
+function addOverview(doc: jsPDF, overview: string, y: number): number {
+  if (!overview || overview.trim().length === 0) return y;
+  
+  y = secHead(doc, "OVERVIEW", y);
+  doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(120, 120, 120);
-  doc.text(`Generated: ${date}  |  Mode: ${mode}  |  Video ID: ${videoId}`, MG, y);
-  y += 4;
-
+  doc.setTextColor(51, 51, 51);
+  
+  const processedText = processReferences(overview);
+  y = addHighlightedText(doc, processedText, MG, y, CW);
+  y += PGAP;
+  
   return sep(doc, y);
 }
 
 function addSummary(doc: jsPDF, summary: string, y: number): number {
-  y = secHead(doc, "EXECUTIVE SUMMARY", y);
-
+  if (!summary || summary.trim().length === 0) return y;
+  
+  y = secHead(doc, "SUMMARY", y);
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(51, 51, 51);
-  const lines = doc.splitTextToSize(summary, CW);
-  for (const line of lines) {
-    y = cpb(doc, y, LH + 1);
-    doc.text(line, MG, y);
-    y += LH + 0.5;
-  }
+  
+  const processedText = processReferences(summary);
+  y = addHighlightedText(doc, processedText, MG, y, CW);
   y += PGAP;
-
+  
   return sep(doc, y);
 }
 
-function addGist(doc: jsPDF, gist: string, y: number, gold?: boolean): number {
-  y = secHead(doc, "GIST", y, gold ? GOLD : undefined);
-
-  if (gold) {
-    doc.setFillColor(255, 248, 225);
-    doc.setDrawColor(GOLD.r, GOLD.g, GOLD.b);
-  } else {
-    doc.setFillColor(238, 242, 255);
-    doc.setDrawColor(99, 102, 241);
+function addTableOfContents(doc: jsPDF, sections: Array<{title: string; time?: string}>, y: number): number {
+  if (!sections || sections.length === 0) return y;
+  
+  y = secHead(doc, "TABLE OF CONTENTS", y, GOLD);
+  
+  for (let i = 0; i < sections.length; i++) {
+    y = cpb(doc, y, LH + 2);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(51, 51, 51);
+    doc.text(`${i + 1}. ${sections[i].title}`, MG + 2, y);
+    
+    if (sections[i].time) {
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text(sections[i].time || "", PW - MG, y, { align: "right" });
+    }
+    
+    y += LH + 2;
   }
-  doc.setLineWidth(0.5);
-
-  doc.setFontSize(10.5);
-  doc.setFont("helvetica", "italic");
-  if (gold) {
-    doc.setTextColor(102, 66, 0);
-  } else {
-    doc.setTextColor(15, 52, 96);
-  }
-  const gistLines = doc.splitTextToSize(`"${gist}"`, CW - 16);
-  const boxHeight = gistLines.length * (LH + 1) + 10;
-
-  y = cpb(doc, y, boxHeight);
-  doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
-  for (const line of gistLines) {
-    doc.text(line, MG + 8, y + 2);
-    y += LH + 1;
-  }
+  
   y += PGAP;
-
   return sep(doc, y);
 }
 
-function addTimestamps(
-  doc: jsPDF,
-  timestamps: { time: string; topic: string; description: string }[],
-  y: number,
-): number {
+function addTimestamps(doc: jsPDF, timestamps: TimestampEntry[], y: number): number {
+  if (!timestamps || timestamps.length === 0) return y;
+  
   y = secHead(doc, "TIMELINE", y);
-
+  
   for (let i = 0; i < timestamps.length; i++) {
     const ts = timestamps[i];
     y = cpb(doc, y, 16);
-
+    
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(99, 102, 241);
     doc.text(ts.time, MG, y);
-
+    
     doc.setFont("helvetica", "bold");
     doc.setTextColor(26, 26, 46);
     doc.text(ts.topic, MG + 18, y);
     y += LHSM + 0.5;
-
+    
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(100, 100, 100);
@@ -183,7 +284,7 @@ function addTimestamps(
       y += LHSM;
     }
     y += 3;
-
+    
     if (i < timestamps.length - 1) {
       doc.setDrawColor(235, 235, 235);
       doc.setLineWidth(0.2);
@@ -191,197 +292,27 @@ function addTimestamps(
       y += 3;
     }
   }
-  y += 3;
-
-  return sep(doc, y);
-}
-
-function addDiagrams(
-  doc: jsPDF,
-  diagrams: MermaidDiagram[],
-  y: number,
-): Promise<number> {
-  return (async () => {
-    y = secHead(doc, "ARCHITECTURE DIAGRAMS", y);
-
-    const imageMap = await fetchDiagramImages(diagrams);
-
-    for (let i = 0; i < diagrams.length; i++) {
-      const diagram = diagrams[i];
-      y = cpb(doc, y, 35);
-
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(22, 33, 62);
-      doc.text(`${i + 1}. ${diagram.title}`, MG, y);
-      y += 6;
-
-      const imageData = imageMap.get(diagram.title);
-      if (imageData) {
-        const imgFormat = imageData.format.toUpperCase() as "JPEG" | "PNG";
-        const imgData = `data:image/${imageData.format};base64,${imageData.buffer.toString("base64")}`;
-
-        const pixelWidth = imageData.width;
-        const pixelHeight = imageData.height;
-        const aspectRatio = pixelHeight / pixelWidth;
-
-        const maxImgWidth = CW - 10;
-        const maxImgHeight = 120;
-
-        let imgWidth = maxImgWidth;
-        let imgHeight = imgWidth * aspectRatio;
-
-        if (imgHeight > maxImgHeight) {
-          imgHeight = maxImgHeight;
-          imgWidth = imgHeight / aspectRatio;
-        }
-
-        y = cpb(doc, y, imgHeight + 12);
-        const xOffset = MG + (CW - imgWidth) / 2;
-        doc.addImage(imgData, imgFormat, xOffset, y, imgWidth, imgHeight);
-        y += imgHeight + 4;
-      } else {
-        doc.setFontSize(8);
-        doc.setFont("courier", "normal");
-        doc.setTextColor(100, 100, 100);
-        const codeLines = doc.splitTextToSize(diagram.mermaidCode, CW - 8);
-        doc.setFillColor(245, 245, 245);
-        const codeHeight = Math.min(codeLines.length * 3.5 + 8, 60);
-        y = cpb(doc, y, codeHeight);
-        doc.roundedRect(MG, y - 3, CW, codeHeight, 2, 2, "F");
-        let codeY = y + 2;
-        const maxLines = Math.floor((codeHeight - 4) / 3.5);
-        for (let j = 0; j < Math.min(codeLines.length, maxLines); j++) {
-          doc.text(codeLines[j], MG + 4, codeY);
-          codeY += 3.5;
-        }
-        if (codeLines.length > maxLines) {
-          doc.text(`... (${codeLines.length - maxLines} more lines)`, MG + 4, codeY);
-        }
-        y += codeHeight + 4;
-      }
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "italic");
-      doc.setTextColor(102, 102, 102);
-      const descLines = doc.splitTextToSize(diagram.description, CW);
-      for (const line of descLines) {
-        y = cpb(doc, y, LHSM);
-        doc.text(line, MG, y);
-        y += LHSM;
-      }
-      y += SGAP;
-    }
-
-    return sep(doc, y);
-  })();
-}
-
-function addTradeoffs(
-  doc: jsPDF,
-  tradeoffs: Tradeoff[],
-  y: number,
-): number {
-  y = secHead(doc, "DESIGN TRADE-OFFS", y);
-
-  for (const tradeoff of tradeoffs) {
-    y = cpb(doc, y, 30);
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(26, 26, 46);
-    const titleLines = doc.splitTextToSize(tradeoff.decision, CW);
-    for (const line of titleLines) {
-      y = cpb(doc, y, LH + 1);
-      doc.text(line, MG, y);
-      y += LH + 1;
-    }
-    y += 3;
-
-    const colWidth = (CW - 8) / 2;
-
-    doc.setFillColor(240, 253, 244);
-    doc.roundedRect(MG, y - 3, colWidth + 4, 4, 2, 2, "F");
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(22, 101, 52);
-    doc.text("PROS", MG + 2, y);
-
-    doc.setFillColor(254, 242, 242);
-    doc.roundedRect(MG + colWidth + 4, y - 3, colWidth + 4, 4, 2, 2, "F");
-    doc.setTextColor(153, 27, 27);
-    doc.text("CONS", MG + colWidth + 6, y);
-    y += 5;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-
-    const leftX = MG + 2;
-    const rightX = MG + colWidth + 6;
-    const maxItems = Math.max(tradeoff.pros.length, tradeoff.cons.length);
-    for (let i = 0; i < maxItems; i++) {
-      y = cpb(doc, y, LHSM + 2);
-
-      const proText = i < tradeoff.pros.length ? `+ ${tradeoff.pros[i]}` : "";
-      const conText = i < tradeoff.cons.length ? `- ${tradeoff.cons[i]}` : "";
-
-      const proLines = proText
-        ? doc.splitTextToSize(proText, colWidth - 8)
-        : [""];
-      const conLines = conText
-        ? doc.splitTextToSize(conText, colWidth - 8)
-        : [""];
-
-      const proCount = proText ? proLines.length : 0;
-      const conCount = conText ? conLines.length : 0;
-      const rowLines = Math.max(proCount, conCount, 1);
-      const rowHeight = rowLines * LHSM + 2;
-
-      y = cpb(doc, y, rowHeight);
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "normal");
-
-      if (proText) {
-        doc.setTextColor(34, 120, 74);
-        let proY = y;
-        for (const line of proLines) {
-          doc.text(line, leftX, proY);
-          proY += LHSM;
-        }
-      }
-
-      if (conText) {
-        doc.setTextColor(190, 18, 60);
-        let conY = y;
-        for (const line of conLines) {
-          doc.text(line, rightX, conY);
-          conY += LHSM;
-        }
-      }
-
-      y += rowHeight;
-    }
-    y += 4;
-  }
-
+  
   return sep(doc, y);
 }
 
 function addTakeaways(doc: jsPDF, takeaways: string[], y: number): number {
+  if (!takeaways || takeaways.length === 0) return y;
+  
   y = secHead(doc, "KEY TAKEAWAYS", y);
-
+  
   for (let i = 0; i < takeaways.length; i++) {
     y = cpb(doc, y, LH + 3);
-
+    
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(99, 102, 241);
     doc.text(`${i + 1}.`, MG, y);
-
+    
     doc.setFont("helvetica", "normal");
     doc.setTextColor(51, 51, 51);
-    const lines = doc.splitTextToSize(takeaways[i], CW - 10);
+    const processedText = processReferences(takeaways[i]);
+    const lines = doc.splitTextToSize(processedText, CW - 10);
     for (const line of lines) {
       y = cpb(doc, y, LH + 0.5);
       doc.text(line, MG + 8, y);
@@ -389,299 +320,77 @@ function addTakeaways(doc: jsPDF, takeaways: string[], y: number): number {
     }
     y += 3;
   }
-
+  
   return y;
 }
 
-// ─── Pro Mode ────────────────────────────────────────────────────
-function addProCoverPage(
-  doc: jsPDF,
-  title: string,
-  date: string,
-  vid: string,
-): number {
-  doc.setFontSize(36);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-  doc.text("PRO", PW / 2, 80, { align: "center" });
-
-  doc.setFontSize(22);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(26, 26, 46);
-  const titleLines = doc.splitTextToSize(title, CW);
-  let y = 95;
-  for (const line of titleLines) {
-    doc.text(line, PW / 2, y, { align: "center" });
-    y += 9;
-  }
-  y += 5;
-
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(100, 100, 100);
-  doc.text(`${date}  |  Video ID: ${vid}`, PW / 2, y, { align: "center" });
-  y += 8;
-
-  doc.setDrawColor(GOLD.r, GOLD.g, GOLD.b);
-  doc.setLineWidth(1);
-  doc.line(PW / 2 - 40, y, PW / 2 + 40, y);
-  y += 8;
-
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "italic");
-  doc.setTextColor(120, 120, 120);
-  doc.text(
-    "Full video content structured as a comprehensive document",
-    PW / 2,
-    y,
-    { align: "center" },
-  );
-
-  doc.addPage();
-  return MG + 5;
-}
-
-function addTableOfContents(
-  doc: jsPDF,
-  sections: ProSection[],
-  focusAreas: string[],
-  y: number,
-): number {
-  y = secHead(doc, "TABLE OF CONTENTS", y, GOLD);
-
-  for (let i = 0; i < sections.length; i++) {
-    y = cpb(doc, y, LH + 2);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(51, 51, 51);
-    doc.text(`${i + 1}. ${sections[i].heading}`, MG + 2, y);
-    doc.setFontSize(8);
-    doc.setTextColor(120, 120, 120);
-    doc.text(
-      `${sections[i].startTime} - ${sections[i].endTime}`,
-      PW - MG,
-      y,
-      { align: "right" },
-    );
-    y += LH + 2;
-  }
-
-  y += 4;
-
-  if (focusAreas.length > 0) {
-    y = cpb(doc, y, LH + 4);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-    doc.text("Focus Areas", MG, y);
-    y += LH + 2;
-
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    for (const area of focusAreas) {
-      y = cpb(doc, y, LH);
-      doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-      doc.text("\u2022", MG + 2, y);
-      doc.setTextColor(51, 51, 51);
-      doc.text(area, MG + 8, y);
-      y += LH;
-    }
-  }
-
-  return sep(doc, y);
-}
-
-function addOverview(doc: jsPDF, overview: string, y: number): number {
-  y = secHead(doc, "OVERVIEW", y, GOLD);
-
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(51, 51, 51);
-  const lines = doc.splitTextToSize(overview, CW);
-  for (const line of lines) {
-    y = cpb(doc, y, LH + 1);
-    doc.text(line, MG, y);
-    y += LH + 0.5;
-  }
-  y += 4;
-
-  return sep(doc, y);
-}
-
-function addProSections(
-  doc: jsPDF,
-  sections: ProSection[],
-  transcript: TranscriptEntry[],
-  y: number,
-): number {
-  y = secHead(doc, "SECTIONS", y, GOLD);
-
-  for (const section of sections) {
-    y = cpb(doc, y, 20);
-
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(22, 33, 62);
-    doc.text(section.heading, MG, y);
-    doc.setFontSize(8);
-    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-    doc.text(
-      `${section.startTime} - ${section.endTime}`,
-      PW - MG,
-      y,
-      { align: "right" },
-    );
-    y += LH + 2;
-
-    if (section.sectionSummary) {
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(51, 51, 51);
-      const sumLines = doc.splitTextToSize(section.sectionSummary, CW - 6);
-      for (const line of sumLines) {
-        y = cpb(doc, y, LH + 1);
-        doc.text(line, MG, y);
-        y += LH;
-      }
-      y += 3;
-    } else {
-      const startMs = parseTimeToMs(section.startTime);
-      const endMs = parseTimeToMs(section.endTime);
-      const matchingEntries = transcript.filter(
-        (e) => e.offset >= startMs && e.offset < endMs,
-      );
-
-      if (matchingEntries.length > 0) {
-        const fullText = matchingEntries.map((e) => e.text).join(" ").substring(0, 500);
-        const allLines = doc.splitTextToSize(fullText + (matchingEntries.map((e) => e.text).join(" ").length > 500 ? "..." : ""), CW - 6);
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(51, 51, 51);
-
-        for (const line of allLines) {
-          y = cpb(doc, y, LH + 1);
-          doc.text(line, MG, y);
-          y += LH;
-        }
-        y += 3;
-      }
-    }
-
-    if (section.keyPoints && section.keyPoints.length > 0) {
-      const kpLines: string[] = [];
-      for (const kp of section.keyPoints) {
-        kpLines.push(...doc.splitTextToSize(`\u2022 ${kp}`, CW - 14));
-      }
-      const kpBoxH = kpLines.length * (LH + 0.5) + 14;
-
-      y = cpb(doc, y, kpBoxH);
-
-      doc.setFillColor(235, 245, 255);
-      doc.setDrawColor(59, 130, 246);
-      doc.setLineWidth(0.5);
-      doc.roundedRect(MG, y - 4, CW, kpBoxH, 3, 3, "FD");
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(59, 130, 246);
-      doc.text("Key Points", MG + 5, y + 2);
-      y += LH + 3;
-
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(51, 51, 51);
-      for (const kpl of kpLines) {
-        y = cpb(doc, y, LH);
-        doc.text(kpl, MG + 5, y);
-        y += LH + 0.5;
-      }
-      y += 4;
-    }
-
-    y = sep(doc, y);
-  }
-
-  return y;
-}
-
-function addDefinitions(
-  doc: jsPDF,
-  definitions: Definition[],
-  y: number,
-): number {
-  if (definitions.length === 0) return y;
-
+function addDefinitions(doc: jsPDF, definitions: Definition[], y: number): number {
+  if (!definitions || definitions.length === 0) return y;
+  
   y = secHead(doc, "KEY DEFINITIONS", y, GOLD);
-
+  
   for (const def of definitions) {
     y = cpb(doc, y, LH * 2 + 4);
-
+    
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
     doc.text(def.term, MG + 2, y);
     y += LH;
-
+    
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(80, 80, 80);
-    const explLines = doc.splitTextToSize(def.explanation, CW - 8);
+    const processedText = processReferences(def.explanation);
+    const explLines = doc.splitTextToSize(processedText, CW - 8);
     for (const line of explLines) {
       y = cpb(doc, y, LH);
       doc.text(line, MG + 6, y);
       y += LH;
     }
+    
+    if (def.introducedIn) {
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Introduced in: ${def.introducedIn}`, MG + 6, y);
+      y += LH;
+    }
+    
     y += 4;
   }
-
+  
   return sep(doc, y);
 }
 
 function addCallouts(doc: jsPDF, callouts: Callout[], y: number): number {
-  if (callouts.length === 0) return y;
-
+  if (!callouts || callouts.length === 0) return y;
+  
   y = secHead(doc, "INSIGHTS & TIPS", y, GOLD);
-
-  const STYLES: Record<
-    string,
-    { bg: number[]; border: number[]; text: number[]; label: string }
-  > = {
-    insight: {
-      bg: [232, 240, 254],
-      border: [59, 130, 246],
-      text: [30, 64, 175],
-      label: "Insight",
-    },
-    warning: {
-      bg: [255, 243, 224],
-      border: [217, 119, 6],
-      text: [146, 64, 14],
-      label: "Warning",
-    },
-    tip: {
-      bg: [236, 253, 245],
-      border: [22, 163, 74],
-      text: [22, 101, 52],
-      label: "Tip",
-    },
+  
+  const STYLES: Record<string, { bg: number[]; border: number[]; text: number[]; label: string }> = {
+    insight: { bg: [232, 240, 254], border: [59, 130, 246], text: [30, 64, 175], label: "Insight" },
+    warning: { bg: [255, 243, 224], border: [217, 119, 6], text: [146, 64, 14], label: "Warning" },
+    tip: { bg: [236, 253, 245], border: [22, 163, 74], text: [22, 101, 52], label: "Tip" },
   };
-
+  
   for (const callout of callouts) {
     const style = STYLES[callout.type] || STYLES.insight;
-
+    
     const contentLines = doc.splitTextToSize(callout.content, CW - 16);
     const titleH = callout.title ? LH + 2 : 0;
     const contentH = contentLines.length * LH;
     const boxHeight = titleH + contentH + 12;
-
+    
     y = cpb(doc, y, boxHeight);
-
+    
     doc.setFillColor(style.bg[0], style.bg[1], style.bg[2]);
     doc.setDrawColor(style.border[0], style.border[1], style.border[2]);
     doc.setLineWidth(0.5);
     doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
-
+    
     let lineY = y + 2;
-
+    
     if (callout.title) {
       doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
@@ -695,7 +404,7 @@ function addCallouts(doc: jsPDF, callouts: Callout[], y: number): number {
       doc.text(`${style.label}`, MG + 6, lineY);
       lineY += LH + 2;
     }
-
+    
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(51, 51, 51);
@@ -703,22 +412,22 @@ function addCallouts(doc: jsPDF, callouts: Callout[], y: number): number {
       doc.text(line, MG + 6, lineY);
       lineY += LH;
     }
-
+    
     y += boxHeight + 3;
   }
-
+  
   return sep(doc, y);
 }
 
 function addQA(doc: jsPDF, qa: QA[], y: number): number {
-  if (qa.length === 0) return y;
-
+  if (!qa || qa.length === 0) return y;
+  
   y = secHead(doc, "Q & A", y, GOLD);
-
+  
   for (let i = 0; i < qa.length; i++) {
     const item = qa[i];
     y = cpb(doc, y, 15);
-
+    
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 33, 62);
@@ -729,7 +438,7 @@ function addQA(doc: jsPDF, qa: QA[], y: number): number {
       y += LH + 0.5;
     }
     y += 2;
-
+    
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(51, 51, 51);
@@ -740,7 +449,7 @@ function addQA(doc: jsPDF, qa: QA[], y: number): number {
       y += LH;
     }
     y += 3;
-
+    
     if (i < qa.length - 1) {
       doc.setDrawColor(220, 220, 220);
       doc.setLineWidth(0.2);
@@ -748,225 +457,391 @@ function addQA(doc: jsPDF, qa: QA[], y: number): number {
       y += 4;
     }
   }
-
+  
   return sep(doc, y);
 }
 
-// ─── System Design Pro Mode ────────────────────────────────────────
-function addSDProCoverPage(
-  doc: jsPDF,
-  title: string,
-  date: string,
-  vid: string,
-): number {
-  doc.setFontSize(28);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-  doc.text("SYSTEM DESIGN PRO", PW / 2, 75, { align: "center" });
-
-  doc.setFontSize(20);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(26, 26, 46);
-  const titleLines = doc.splitTextToSize(title, CW);
-  let y = 92;
-  for (const line of titleLines) {
-    doc.text(line, PW / 2, y, { align: "center" });
-    y += 8;
-  }
-  y += 5;
-
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(100, 100, 100);
-  doc.text(`${date}  |  Video ID: ${vid}`, PW / 2, y, { align: "center" });
-  y += 8;
-
-  doc.setDrawColor(GOLD.r, GOLD.g, GOLD.b);
-  doc.setLineWidth(1);
-  doc.line(PW / 2 - 40, y, PW / 2 + 40, y);
-  y += 8;
-
-  doc.setFontSize(10);
+// ─── System Design Specific Sections ────────────────────────────
+function addCapacityEstimates(doc: jsPDF, estimates: CapacityEstimate[], y: number): number {
+  if (!estimates || estimates.length === 0) return y;
+  
+  y = secHead(doc, "CAPACITY ESTIMATES", y, GOLD);
+  
+  doc.setFontSize(9);
   doc.setFont("helvetica", "italic");
   doc.setTextColor(120, 120, 120);
-  doc.text(
-    "Architecture diagrams, trade-offs & full structured content",
-    PW / 2,
-    y,
-    { align: "center" },
-  );
-
-  doc.addPage();
-  return MG + 5;
-}
-
-function addSDDetectionBanner(
-  doc: jsPDF,
-  isSystemDesign: boolean,
-  videoType: string,
-  y: number,
-): number {
-  y = cpb(doc, y, 28);
-
-  if (isSystemDesign) {
-    doc.setFillColor(219, 234, 254);
-    doc.setDrawColor(59, 130, 246);
-  } else {
-    doc.setFillColor(254, 243, 224);
-    doc.setDrawColor(217, 119, 6);
-  }
-  doc.setLineWidth(0.5);
-  doc.roundedRect(MG, y, CW, 22, 3, 3, "FD");
-
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "bold");
-  if (isSystemDesign) {
-    doc.setTextColor(30, 64, 175);
-    doc.text("System Design Video Detected", MG + 6, y + 6);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(51, 51, 51);
-    doc.text("Generating architecture diagrams, sequence flows, and trade-off analysis.", MG + 6, y + 13);
-  } else {
-    doc.setTextColor(146, 64, 14);
-    const displayType = videoType === "tutorial" ? "Tutorial" : videoType === "talk" ? "Talk/Presentation" : videoType === "interview" ? "Interview" : "Other";
-    doc.text(`Video classified as: ${displayType}`, MG + 6, y + 6);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(51, 51, 51);
-    doc.text("System design diagrams are not generated for this content type. Full content analysis provided.", MG + 6, y + 13);
-  }
-  y += 28;
-  return y;
-}
-
-function addTableOfContentsWithDiagrams(
-  doc: jsPDF,
-  sections: ProSection[],
-  focusAreas: string[],
-  diagramTitles: string[],
-  y: number,
-): number {
-  y = secHead(doc, "TABLE OF CONTENTS", y, GOLD);
-
-  for (let i = 0; i < sections.length; i++) {
-    y = cpb(doc, y, LH + 2);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(51, 51, 51);
-    doc.text(`${i + 1}. ${sections[i].heading}`, MG + 2, y);
-    doc.setFontSize(8);
-    doc.setTextColor(120, 120, 120);
-    doc.text(
-      `${sections[i].startTime} - ${sections[i].endTime}`,
-      PW - MG,
-      y,
-      { align: "right" },
-    );
-    y += LH + 2;
-  }
-
-  if (diagramTitles.length > 0) {
-    y += 4;
-    y = cpb(doc, y, LH + 4);
+  doc.text("Note: These are back-of-envelope estimates typical for this system type.", MG, y);
+  y += LH + 2;
+  
+  for (const est of estimates) {
+    y = cpb(doc, y, LH * 3);
+    
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(59, 130, 246);
-    doc.text("Diagrams", MG, y);
-    y += LH + 2;
-
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    for (let i = 0; i < diagramTitles.length; i++) {
-      y = cpb(doc, y, LH);
-      doc.setTextColor(59, 130, 246);
-      doc.text("\u2022", MG + 2, y);
-      doc.setTextColor(51, 51, 51);
-      doc.text(diagramTitles[i], MG + 8, y);
-      y += LH;
-    }
-  }
-
-  y += 4;
-
-  if (focusAreas.length > 0) {
-    y = cpb(doc, y, LH + 4);
-    doc.setFontSize(10);
+    doc.setTextColor(26, 26, 46);
+    doc.text(est.metric, MG + 2, y);
+    y += LH;
+    
+    doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-    doc.text("Focus Areas", MG, y);
-    y += LH + 2;
-
+    doc.text(est.value, MG + 2, y);
+    y += LH;
+    
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    for (const area of focusAreas) {
+    doc.setTextColor(100, 100, 100);
+    const explLines = doc.splitTextToSize(est.explanation, CW - 8);
+    for (const line of explLines) {
       y = cpb(doc, y, LH);
-      doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-      doc.text("\u2022", MG + 2, y);
-      doc.setTextColor(51, 51, 51);
-      doc.text(area, MG + 8, y);
+      doc.text(line, MG + 2, y);
       y += LH;
     }
+    y += 4;
   }
-
+  
   return sep(doc, y);
 }
 
-function addDiagramInline(
-  doc: jsPDF,
-  diagram: MermaidDiagram,
-  imageData: { buffer: Buffer; format: "jpeg" | "png"; width: number; height: number } | undefined,
-  y: number,
-): number {
-  y = cpb(doc, y, 20);
-
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(59, 130, 246);
-  doc.text(diagram.title, MG, y);
-  y += 6;
-
-  if (imageData) {
-    const imgFormat = imageData.format.toUpperCase() as "JPEG" | "PNG";
-    const imgData = `data:image/${imageData.format};base64,${imageData.buffer.toString("base64")}`;
-    const pixelWidth = imageData.width;
-    const pixelHeight = imageData.height;
-    const aspectRatio = pixelHeight / pixelWidth;
-    const maxImgWidth = CW - 10;
-    const maxImgHeight = 100;
-    let imgWidth = maxImgWidth;
-    let imgHeight = imgWidth * aspectRatio;
-    if (imgHeight > maxImgHeight) {
-      imgHeight = maxImgHeight;
-      imgWidth = imgHeight / aspectRatio;
+function addDataModel(doc: jsPDF, entities: DataEntity[], y: number): number {
+  if (!entities || entities.length === 0) return y;
+  
+  y = secHead(doc, "DATA MODEL", y, GOLD);
+  
+  for (const entity of entities) {
+    y = cpb(doc, y, LH * 2 + 4);
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 33, 62);
+    doc.text(entity.entity, MG + 2, y);
+    y += LH + 1;
+    
+    if (entity.attributes && entity.attributes.length > 0) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Attributes: ${entity.attributes.join(", ")}`, MG + 4, y);
+      y += LH;
     }
-    y = cpb(doc, y, imgHeight + 8);
-    const xOffset = MG + (CW - imgWidth) / 2;
-    doc.addImage(imgData, imgFormat, xOffset, y, imgWidth, imgHeight);
-    y += imgHeight + 4;
-  } else {
-    doc.setFontSize(8);
-    doc.setFont("courier", "normal");
-    doc.setTextColor(100, 100, 100);
-    const codeLines = doc.splitTextToSize(diagram.mermaidCode, CW - 8);
-    doc.setFillColor(245, 245, 245);
-    const codeHeight = Math.min(codeLines.length * 3.5 + 8, 50);
-    y = cpb(doc, y, codeHeight);
-    doc.roundedRect(MG, y - 3, CW, codeHeight, 2, 2, "F");
-    let codeY = y + 2;
-    const maxLines = Math.floor((codeHeight - 4) / 3.5);
-    for (let j = 0; j < Math.min(codeLines.length, maxLines); j++) {
-      doc.text(codeLines[j], MG + 4, codeY);
-      codeY += 3.5;
+    
+    if (entity.relationships && entity.relationships.length > 0) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 100, 100);
+      for (const rel of entity.relationships) {
+        y = cpb(doc, y, LH);
+        doc.text(`• ${rel}`, MG + 4, y);
+        y += LH;
+      }
     }
-    if (codeLines.length > maxLines) {
-      doc.text(`... (${codeLines.length - maxLines} more lines)`, MG + 4, codeY);
-    }
-    y += codeHeight + 4;
+    
+    y += 4;
   }
+  
+  return sep(doc, y);
+}
 
-  if (diagram.description) {
+function addApiDesign(doc: jsPDF, endpoints: ApiEndpoint[], y: number): number {
+  if (!endpoints || endpoints.length === 0) return y;
+  
+  y = secHead(doc, "API DESIGN", y, GOLD);
+  
+  for (const ep of endpoints) {
+    y = cpb(doc, y, LH * 3 + 4);
+    
+    // Method badge
+    doc.setFillColor(238, 242, 255);
+    doc.setDrawColor(99, 102, 241);
+    doc.roundedRect(MG, y - 3, 20, 6, 2, 2, "FD");
     doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(99, 102, 241);
+    doc.text(ep.method, MG + 2, y + 1);
+    
+    // Endpoint path
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(26, 26, 46);
+    doc.text(ep.endpoint, MG + 24, y);
+    y += LH + 2;
+    
+    // Description
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 80, 80);
+    const descLines = doc.splitTextToSize(ep.description, CW - 8);
+    for (const line of descLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 2, y);
+      y += LH;
+    }
+    
+    // Request/Response params if present
+    if (ep.requestParams && ep.requestParams.length > 0) {
+      y += 2;
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Request: ${ep.requestParams.join(", ")}`, MG + 2, y);
+      y += LH;
+    }
+    
+    if (ep.responseParams && ep.responseParams.length > 0) {
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Response: ${ep.responseParams.join(", ")}`, MG + 2, y);
+      y += LH;
+    }
+    
+    y += 4;
+  }
+  
+  return sep(doc, y);
+}
+
+function addTradeoffs(doc: jsPDF, tradeoffs: Tradeoff[], y: number): number {
+  if (!tradeoffs || tradeoffs.length === 0) return y;
+  
+  y = secHead(doc, "DESIGN TRADE-OFFS", y, GOLD);
+  
+  for (const tradeoff of tradeoffs) {
+    y = cpb(doc, y, 30);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(26, 26, 46);
+    const titleLines = doc.splitTextToSize(tradeoff.decision, CW);
+    for (const line of titleLines) {
+      y = cpb(doc, y, LH + 1);
+      doc.text(line, MG, y);
+      y += LH + 1;
+    }
+    y += 3;
+    
+    const colWidth = (CW - 8) / 2;
+    
+    doc.setFillColor(240, 253, 244);
+    doc.roundedRect(MG, y - 3, colWidth + 4, 4, 2, 2, "F");
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 101, 52);
+    doc.text("PROS", MG + 2, y);
+    
+    doc.setFillColor(254, 242, 242);
+    doc.roundedRect(MG + colWidth + 4, y - 3, colWidth + 4, 4, 2, 2, "F");
+    doc.setTextColor(153, 27, 27);
+    doc.text("CONS", MG + colWidth + 6, y);
+    y += 5;
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    
+    const leftX = MG + 2;
+    const rightX = MG + colWidth + 6;
+    const maxItems = Math.max(tradeoff.pros.length, tradeoff.cons.length);
+    for (let i = 0; i < maxItems; i++) {
+      y = cpb(doc, y, LHSM + 2);
+      
+      const proText = i < tradeoff.pros.length ? `+ ${tradeoff.pros[i]}` : "";
+      const conText = i < tradeoff.cons.length ? `- ${tradeoff.cons[i]}` : "";
+      
+      const proLines = proText ? doc.splitTextToSize(proText, colWidth - 8) : [""];
+      const conLines = conText ? doc.splitTextToSize(conText, colWidth - 8) : [""];
+      
+      const proCount = proText ? proLines.length : 0;
+      const conCount = conText ? conLines.length : 0;
+      const rowLines = Math.max(proCount, conCount, 1);
+      const rowHeight = rowLines * LHSM + 2;
+      
+      y = cpb(doc, y, rowHeight);
+      
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      
+      if (proText) {
+        doc.setTextColor(34, 120, 74);
+        let proY = y;
+        for (const line of proLines) {
+          doc.text(line, leftX, proY);
+          proY += LHSM;
+        }
+      }
+      
+      if (conText) {
+        doc.setTextColor(190, 18, 60);
+        let conY = y;
+        for (const line of conLines) {
+          doc.text(line, rightX, conY);
+          conY += LHSM;
+        }
+      }
+      
+      y += rowHeight;
+    }
+    y += 4;
+  }
+  
+  return sep(doc, y);
+}
+
+function addFailureScenarios(doc: jsPDF, scenarios: FailureScenario[], y: number): number {
+  if (!scenarios || scenarios.length === 0) return y;
+  
+  y = secHead(doc, "FAILURE SCENARIOS", y, GOLD);
+  
+  for (const scenario of scenarios) {
+    y = cpb(doc, y, LH * 4 + 4);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(180, 83, 9);
+    doc.text("⚠ " + scenario.scenario, MG + 2, y);
+    y += LH + 1;
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 100, 100);
+    doc.text("Impact:", MG + 4, y);
+    y += LH;
+    
+    doc.setTextColor(80, 80, 80);
+    const impactLines = doc.splitTextToSize(scenario.impact, CW - 10);
+    for (const line of impactLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 6, y);
+      y += LH;
+    }
+    y += 2;
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 100, 100);
+    doc.text("Mitigation:", MG + 4, y);
+    y += LH;
+    
+    doc.setTextColor(34, 120, 74);
+    const mitigationLines = doc.splitTextToSize(scenario.mitigation, CW - 10);
+    for (const line of mitigationLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 6, y);
+      y += LH;
+    }
+    
+    y += 4;
+  }
+  
+  return sep(doc, y);
+}
+
+function addNFRs(doc: jsPDF, nfrs: NFR[], y: number): number {
+  if (!nfrs || nfrs.length === 0) return y;
+  
+  y = secHead(doc, "NON-FUNCTIONAL REQUIREMENTS", y, GOLD);
+  
+  const categoryColors: Record<string, { r: number; g: number; b: number }> = {
+    scalability: { r: 59, g: 130, b: 246 },
+    reliability: { r: 22, g: 163, b: 74 },
+    performance: { r: 217, g: 119, b: 6 },
+    security: { r: 220, g: 38, b: 38 },
+  };
+  
+  for (const nfr of nfrs) {
+    y = cpb(doc, y, LH * 2 + 4);
+    
+    const color = categoryColors[nfr.category] || { r: 99, g: 102, b: 241 };
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(color.r, color.g, color.b);
+    doc.text(nfr.category.toUpperCase(), MG + 2, y);
+    y += LH + 2;
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 80, 80);
+    for (const req of nfr.requirements) {
+      y = cpb(doc, y, LH);
+      doc.text(`• ${req}`, MG + 4, y);
+      y += LH;
+    }
+    
+    y += 4;
+  }
+  
+  return sep(doc, y);
+}
+
+// ─── Diagram Rendering ──────────────────────────────────────────
+async function addDiagrams(doc: jsPDF, diagrams: MermaidDiagram[], y: number): Promise<number> {
+  if (!diagrams || diagrams.length === 0) return y;
+  
+  y = secHead(doc, "ARCHITECTURE DIAGRAMS", y);
+  
+  const imageMap = await fetchDiagramImages(diagrams);
+  
+  for (let i = 0; i < diagrams.length; i++) {
+    const diagram = diagrams[i];
+    y = cpb(doc, y, 35);
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 33, 62);
+    doc.text(`${i + 1}. ${diagram.title}`, MG, y);
+    
+    if (diagram.relatedSection) {
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(120, 120, 120);
+      doc.text(`(Related to: ${diagram.relatedSection})`, MG + doc.getTextWidth(`${i + 1}. ${diagram.title}`) + 5, y);
+    }
+    
+    y += 6;
+    
+    const imageData = imageMap.get(diagram.title);
+    if (imageData) {
+      const imgFormat = imageData.format.toUpperCase() as "JPEG" | "PNG";
+      const imgData = `data:image/${imageData.format};base64,${imageData.buffer.toString("base64")}`;
+      
+      const aspectRatio = imageData.height / imageData.width;
+      const maxImgWidth = CW - 10;
+      const maxImgHeight = 100;
+      
+      let imgWidth = maxImgWidth;
+      let imgHeight = imgWidth * aspectRatio;
+      
+      if (imgHeight > maxImgHeight) {
+        imgHeight = maxImgHeight;
+        imgWidth = imgHeight / aspectRatio;
+      }
+      
+      y = cpb(doc, y, imgHeight + 12);
+      const xOffset = MG + (CW - imgWidth) / 2;
+      doc.addImage(imgData, imgFormat, xOffset, y, imgWidth, imgHeight);
+      y += imgHeight + 4;
+    } else {
+      doc.setFontSize(8);
+      doc.setFont("courier", "normal");
+      doc.setTextColor(100, 100, 100);
+      const codeLines = doc.splitTextToSize(diagram.mermaidCode, CW - 8);
+      doc.setFillColor(245, 245, 245);
+      const codeHeight = Math.min(codeLines.length * 3.5 + 8, 50);
+      y = cpb(doc, y, codeHeight);
+      doc.roundedRect(MG, y - 3, CW, codeHeight, 2, 2, "F");
+      let codeY = y + 2;
+      const maxLines = Math.floor((codeHeight - 4) / 3.5);
+      for (let j = 0; j < Math.min(codeLines.length, maxLines); j++) {
+        doc.text(codeLines[j], MG + 4, codeY);
+        codeY += 3.5;
+      }
+      if (codeLines.length > maxLines) {
+        doc.text(`... (${codeLines.length - maxLines} more lines)`, MG + 4, codeY);
+      }
+      y += codeHeight + 4;
+    }
+    
+    doc.setFontSize(9);
     doc.setFont("helvetica", "italic");
     doc.setTextColor(102, 102, 102);
     const descLines = doc.splitTextToSize(diagram.description, CW);
@@ -975,106 +850,783 @@ function addDiagramInline(
       doc.text(line, MG, y);
       y += LHSM;
     }
+    y += SGAP;
   }
+  
+  return sep(doc, y);
+}
 
-  y += SGAP;
+// ─── Pro Sections (Dynamic) ─────────────────────────────────────
+function addProSections(doc: jsPDF, sections: ProSection[], y: number): number {
+  if (!sections || sections.length === 0) return y;
+  
+  y = secHead(doc, "SECTIONS", y, GOLD);
+  
+  for (const section of sections) {
+    y = cpb(doc, y, 20);
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 33, 62);
+    doc.text(section.heading, MG, y);
+    doc.setFontSize(8);
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text(`${section.startTime} - ${section.endTime}`, PW - MG, y, { align: "right" });
+    y += LH + 2;
+    
+    if (section.sectionSummary && section.sectionSummary.trim().length > 0) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 51, 51);
+      const processedText = processReferences(section.sectionSummary);
+      y = addHighlightedText(doc, processedText, MG, y, CW);
+      y += 3;
+    } else {
+      // No transcript fallback - show placeholder
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(150, 150, 150);
+      doc.text("[Section content not available]", MG, y);
+      y += LH + 2;
+    }
+    
+    if (section.keyPoints && section.keyPoints.length > 0) {
+      const kpLines: string[] = [];
+      for (const kp of section.keyPoints) {
+        kpLines.push(...doc.splitTextToSize(`• ${kp}`, CW - 14));
+      }
+      const kpBoxH = kpLines.length * (LH + 0.5) + 14;
+      
+      y = cpb(doc, y, kpBoxH);
+      
+      doc.setFillColor(235, 245, 255);
+      doc.setDrawColor(59, 130, 246);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(MG, y - 4, CW, kpBoxH, 3, 3, "FD");
+      
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(59, 130, 246);
+      doc.text("Key Points", MG + 5, y + 2);
+      y += LH + 3;
+      
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 51, 51);
+      for (const kpl of kpLines) {
+        y = cpb(doc, y, LH);
+        doc.text(kpl, MG + 5, y);
+        y += LH + 0.5;
+      }
+      y += 4;
+    }
+    
+    y = sep(doc, y);
+  }
+  
   return y;
+}
+
+// ─── Technical Course Specific Sections ────────────────────────
+function addLessons(doc: jsPDF, lessons: Lesson[], y: number, isPro: boolean): number {
+  if (!lessons || lessons.length === 0) return y;
+  
+  y = secHead(doc, "LESSONS", y, GOLD);
+  
+  for (const lesson of lessons) {
+    y = cpb(doc, y, 25);
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 33, 62);
+    doc.text(lesson.title, MG, y);
+    doc.setFontSize(8);
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text(`${lesson.startTime} - ${lesson.endTime}`, PW - MG, y, { align: "right" });
+    y += LH + 2;
+    
+    if (lesson.concepts && lesson.concepts.length > 0) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Concepts: ${lesson.concepts.join(", ")}`, MG, y);
+      y += LH + 2;
+    }
+    
+    if (lesson.keyPoints && lesson.keyPoints.length > 0) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 51, 51);
+      for (const point of lesson.keyPoints) {
+        y = cpb(doc, y, LH);
+        doc.text(`• ${point}`, MG + 4, y);
+        y += LH;
+      }
+      y += 2;
+    }
+    
+    // Pro-only inline sections
+    if (isPro) {
+      // Code examples
+      if (lesson.codeExamples && lesson.codeExamples.length > 0) {
+        y += 2;
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(59, 130, 246);
+        doc.text("Code Examples:", MG + 2, y);
+        y += LH + 1;
+        
+        for (const code of lesson.codeExamples) {
+          y = cpb(doc, y, LH * 2 + 4);
+          
+          if (code.language) {
+            doc.setFillColor(240, 240, 240);
+            doc.roundedRect(MG + 2, y - 3, 30, 5, 1, 1, "F");
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(100, 100, 100);
+            doc.text(code.language, MG + 4, y);
+            y += LH;
+          }
+          
+          doc.setFillColor(245, 245, 245);
+          const codeLines = doc.splitTextToSize(code.code, CW - 12);
+          const codeHeight = Math.min(codeLines.length * 3.5 + 6, 60);
+          y = cpb(doc, y, codeHeight);
+          doc.roundedRect(MG + 2, y - 2, CW - 4, codeHeight, 2, 2, "F");
+          
+          doc.setFontSize(8);
+          doc.setFont("courier", "normal");
+          doc.setTextColor(60, 60, 60);
+          let codeY = y + 2;
+          const maxLines = Math.floor((codeHeight - 4) / 3.5);
+          for (let i = 0; i < Math.min(codeLines.length, maxLines); i++) {
+            doc.text(codeLines[i], MG + 4, codeY);
+            codeY += 3.5;
+          }
+          y += codeHeight + 2;
+          
+          if (code.explanation) {
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "italic");
+            doc.setTextColor(100, 100, 100);
+            const explLines = doc.splitTextToSize(code.explanation, CW - 12);
+            for (const line of explLines) {
+              y = cpb(doc, y, LH);
+              doc.text(line, MG + 4, y);
+              y += LH;
+            }
+          }
+          y += 2;
+        }
+      }
+      
+      // Pitfalls
+      if (lesson.pitfalls && lesson.pitfalls.length > 0) {
+        y += 2;
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(220, 38, 38);
+        const pitfallLines = lesson.pitfalls.length;
+        const boxHeight = pitfallLines * LH + 10;
+        y = cpb(doc, y, boxHeight);
+        doc.roundedRect(MG + 2, y - 3, CW - 4, boxHeight, 2, 2, "FD");
+        
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(153, 27, 27);
+        doc.text("⚠ Common Pitfalls:", MG + 5, y + 2);
+        y += LH + 2;
+        
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(80, 80, 80);
+        for (const pitfall of lesson.pitfalls) {
+          y = cpb(doc, y, LH);
+          doc.text(`• ${pitfall}`, MG + 5, y);
+          y += LH;
+        }
+        y += 2;
+      }
+      
+      // Best practices
+      if (lesson.bestPractices && lesson.bestPractices.length > 0) {
+        y += 2;
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(22, 163, 74);
+        const bpLines = lesson.bestPractices.length;
+        const boxHeight = bpLines * LH + 10;
+        y = cpb(doc, y, boxHeight);
+        doc.roundedRect(MG + 2, y - 3, CW - 4, boxHeight, 2, 2, "FD");
+        
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(22, 101, 52);
+        doc.text("✓ Best Practices:", MG + 5, y + 2);
+        y += LH + 2;
+        
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(80, 80, 80);
+        for (const bp of lesson.bestPractices) {
+          y = cpb(doc, y, LH);
+          doc.text(`• ${bp}`, MG + 5, y);
+          y += LH;
+        }
+        y += 2;
+      }
+      
+      // Exercise suggestions
+      if (lesson.exerciseSuggestions && lesson.exerciseSuggestions.length > 0) {
+        y += 2;
+        doc.setFillColor(255, 251, 235);
+        doc.setDrawColor(217, 119, 6);
+        const exLines = lesson.exerciseSuggestions.length;
+        const boxHeight = exLines * LH + 10;
+        y = cpb(doc, y, boxHeight);
+        doc.roundedRect(MG + 2, y - 3, CW - 4, boxHeight, 2, 2, "FD");
+        
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(146, 64, 14);
+        doc.text("📝 Try It Yourself:", MG + 5, y + 2);
+        y += LH + 2;
+        
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(80, 80, 80);
+        for (const ex of lesson.exerciseSuggestions) {
+          y = cpb(doc, y, LH);
+          doc.text(`• ${ex}`, MG + 5, y);
+          y += LH;
+        }
+        y += 2;
+      }
+    }
+    
+    y = sep(doc, y);
+  }
+  
+  return y;
+}
+
+function addKeyConcepts(doc: jsPDF, concepts: KeyConcept[], y: number): number {
+  if (!concepts || concepts.length === 0) return y;
+  
+  y = secHead(doc, "KEY CONCEPTS", y, GOLD);
+  
+  for (const concept of concepts) {
+    y = cpb(doc, y, LH * 3 + 4);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+    doc.text(concept.term, MG + 2, y);
+    y += LH;
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 80, 80);
+    const processedText = processReferences(concept.definition);
+    const defLines = doc.splitTextToSize(processedText, CW - 8);
+    for (const line of defLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 4, y);
+      y += LH;
+    }
+    
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(150, 150, 150);
+    doc.text(`Introduced in: ${concept.introducedIn}`, MG + 4, y);
+    y += LH + 4;
+  }
+  
+  return sep(doc, y);
+}
+
+function addPrerequisites(doc: jsPDF, prerequisites: string[], y: number): number {
+  if (!prerequisites || prerequisites.length === 0) return y;
+  
+  y = secHead(doc, "PREREQUISITES", y, GOLD);
+  
+  doc.setFillColor(254, 249, 231);
+  doc.setDrawColor(217, 119, 6);
+  const boxHeight = prerequisites.length * LH + 12;
+  y = cpb(doc, y, boxHeight);
+  doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(146, 64, 14);
+  doc.text("Before starting this course, you should know:", MG + 5, y + 2);
+  y += LH + 3;
+  
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(80, 80, 80);
+  for (const prereq of prerequisites) {
+    y = cpb(doc, y, LH);
+    doc.text(`• ${prereq}`, MG + 5, y);
+    y += LH;
+  }
+  
+  return sep(doc, y);
+}
+
+function addImplementationSteps(doc: jsPDF, steps: string[], y: number): number {
+  if (!steps || steps.length === 0) return y;
+  
+  y = secHead(doc, "IMPLEMENTATION STEPS", y, GOLD);
+  
+  for (let i = 0; i < steps.length; i++) {
+    y = cpb(doc, y, LH + 2);
+    
+    doc.setFillColor(238, 242, 255);
+    doc.roundedRect(MG, y - 3, 16, 6, 2, 2, "F");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(99, 102, 241);
+    doc.text(`${i + 1}`, MG + 5, y + 1);
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(51, 51, 51);
+    const stepLines = doc.splitTextToSize(steps[i], CW - 22);
+    for (const line of stepLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 20, y);
+      y += LH;
+    }
+    y += 3;
+  }
+  
+  return sep(doc, y);
+}
+
+function addCommonPitfalls(doc: jsPDF, pitfalls: string[], y: number): number {
+  if (!pitfalls || pitfalls.length === 0) return y;
+  
+  y = secHead(doc, "COMMON PITFALLS", y, GOLD);
+  
+  doc.setFillColor(254, 242, 242);
+  doc.setDrawColor(220, 38, 38);
+  const boxHeight = pitfalls.length * LH + 10;
+  y = cpb(doc, y, boxHeight);
+  doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(80, 80, 80);
+  for (const pitfall of pitfalls) {
+    y = cpb(doc, y, LH);
+    doc.text(`⚠ ${pitfall}`, MG + 5, y);
+    y += LH;
+  }
+  
+  return sep(doc, y);
+}
+
+function addToolsMentioned(doc: jsPDF, tools: string[], y: number): number {
+  if (!tools || tools.length === 0) return y;
+  
+  y = secHead(doc, "TOOLS & TECHNOLOGIES", y, GOLD);
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(51, 51, 51);
+  
+  // Display as tags
+  let currentX = MG;
+  let currentY = y;
+  const tagHeight = 6;
+  const tagPadding = 4;
+  
+  for (const tool of tools) {
+    const textWidth = doc.getTextWidth(tool);
+    const tagWidth = textWidth + tagPadding * 2;
+    
+    if (currentX + tagWidth > PW - MG) {
+      currentX = MG;
+      currentY += tagHeight + 3;
+      y = cpb(doc, currentY, tagHeight + 3);
+      currentY = y;
+    }
+    
+    doc.setFillColor(238, 242, 255);
+    doc.setDrawColor(99, 102, 241);
+    doc.roundedRect(currentX, currentY - 4, tagWidth, tagHeight, 2, 2, "FD");
+    doc.setTextColor(99, 102, 241);
+    doc.text(tool, currentX + tagPadding, currentY);
+    
+    currentX += tagWidth + 4;
+  }
+  
+  y = currentY + tagHeight + 4;
+  
+  return sep(doc, y);
+}
+
+function addExerciseSuggestions(doc: jsPDF, exercises: string[], y: number): number {
+  if (!exercises || exercises.length === 0) return y;
+  
+  y = secHead(doc, "EXERCISE SUGGESTIONS", y, GOLD);
+  
+  for (let i = 0; i < exercises.length; i++) {
+    y = cpb(doc, y, LH + 4);
+    
+    doc.setFillColor(255, 251, 235);
+    doc.setDrawColor(217, 119, 6);
+    doc.roundedRect(MG, y - 3, CW, LH + 4, 2, 2, "FD");
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(146, 64, 14);
+    doc.text(`${i + 1}.`, MG + 3, y + 1);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80, 80, 80);
+    const exLines = doc.splitTextToSize(exercises[i], CW - 14);
+    for (const line of exLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 12, y);
+      y += LH;
+    }
+    y += 3;
+  }
+  
+  return sep(doc, y);
+}
+
+function addBestPractices(doc: jsPDF, practices: string[], y: number): number {
+  if (!practices || practices.length === 0) return y;
+  
+  y = secHead(doc, "BEST PRACTICES", y, GOLD);
+  
+  doc.setFillColor(236, 253, 245);
+  doc.setDrawColor(22, 163, 74);
+  const boxHeight = practices.length * LH + 10;
+  y = cpb(doc, y, boxHeight);
+  doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(80, 80, 80);
+  for (const practice of practices) {
+    y = cpb(doc, y, LH);
+    doc.text(`✓ ${practice}`, MG + 5, y);
+    y += LH;
+  }
+  
+  return sep(doc, y);
+}
+
+function addResources(doc: jsPDF, resources: string[], y: number): number {
+  if (!resources || resources.length === 0) return y;
+  
+  y = secHead(doc, "RESOURCES", y, GOLD);
+  
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(59, 130, 246);
+  
+  for (const resource of resources) {
+    y = cpb(doc, y, LH + 2);
+    doc.textWithLink(resource, MG, y, { url: resource });
+    y += LH + 2;
+  }
+  
+  return sep(doc, y);
+}
+
+function addTargetAudience(doc: jsPDF, audience: string, y: number): number {
+  if (!audience || audience.trim().length === 0) return y;
+  
+  y = secHead(doc, "TARGET AUDIENCE", y, GOLD);
+  
+  const audienceColors: Record<string, { bg: number[]; text: number[] }> = {
+    beginner: { bg: [236, 253, 245], text: [22, 101, 52] },
+    intermediate: { bg: [254, 249, 231], text: [146, 64, 14] },
+    advanced: { bg: [254, 242, 242], text: [153, 27, 27] },
+  };
+  
+  const color = audienceColors[audience.toLowerCase()] || { bg: [238, 242, 255], text: [99, 102, 241] };
+  
+  doc.setFillColor(color.bg[0], color.bg[1], color.bg[2]);
+  doc.roundedRect(MG, y - 4, 60, 10, 3, 3, "F");
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(color.text[0], color.text[1], color.text[2]);
+  doc.text(audience.charAt(0).toUpperCase() + audience.slice(1), MG + 5, y + 2);
+  
+  return sep(doc, y + 10);
 }
 
 // ─── Main Export ─────────────────────────────────────────────────
 export async function generatePdf(
   summary: SummaryResult,
-  mode: "normal" | "system-design" | "system-design-pro" | "pro",
+  mode: Mode,
   videoId: string,
-  transcript?: TranscriptEntry[],
+  _transcript?: unknown,
 ): Promise<Buffer> {
-  const modeLabel =
-    mode === "pro" ? "Pro" : mode === "system-design-pro" ? "System Design Pro" : mode === "system-design" ? "System Design" : "Normal";
-  const date = new Date().toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
     format: "a4",
   });
 
-  let y: number;
+  let y = MG + 5;
 
-  if (mode === "system-design-pro" && isSystemDesignProSummary(summary)) {
-    const sdpro = summary as SystemDesignProSummary;
-    const diagrams = sdpro.diagrams || [];
-    const sections = sdpro.sections || [];
-    const diagramTitles = diagrams.map((d) => d.title);
-    const imageMap = diagrams.length > 0 ? await fetchDiagramImages(diagrams) : new Map();
+  // Cover page
+  y = addCoverPage(doc, summary.title, mode, videoId, y);
 
-    y = addSDProCoverPage(doc, sdpro.title, date, videoId);
-    y = addTableOfContentsWithDiagrams(doc, sections, sdpro.focusAreas || [], diagramTitles, y);
-    y = addSDDetectionBanner(doc, sdpro.isSystemDesign ?? true, sdpro.videoType || "other", y);
-    y = addOverview(doc, sdpro.overview || "", y);
-    y = addGist(doc, sdpro.gist || "", y, true);
-    y = addSummary(doc, sdpro.summary || "", y);
-
-    y = addProSections(doc, sections, transcript || [], y);
-
-    if (diagrams.length > 0 && sdpro.isSystemDesign) {
-      y = secHead(doc, "ARCHITECTURE DIAGRAMS", y);
-      for (let i = 0; i < diagrams.length; i++) {
-        const diagram = diagrams[i];
-        const imgData = imageMap.get(diagram.title) || undefined;
-        if (imgData) {
-          imageMap.set(diagram.title, imgData);
+  // Dynamic section rendering based on mode and available content
+  if (isNormalSummary(summary)) {
+    // Normal mode - dynamic sections
+    if (summary.overview) {
+      y = addOverview(doc, summary.overview, y);
+    }
+    if (summary.summary) {
+      y = addSummary(doc, summary.summary, y);
+    }
+    if (summary.timestamps && summary.timestamps.length > 0) {
+      y = addTimestamps(doc, summary.timestamps, y);
+    }
+    if (summary.keyTakeaways && summary.keyTakeaways.length > 0) {
+      y = addTakeaways(doc, summary.keyTakeaways, y);
+    }
+  } else if (isSystemDesignSummary(summary)) {
+    // System Design mode - dynamic sections
+    if (summary.overview) {
+      y = addOverview(doc, summary.overview, y);
+    }
+    if (summary.summary) {
+      y = addSummary(doc, summary.summary, y);
+    }
+    if (summary.diagrams && summary.diagrams.length > 0) {
+      y = await addDiagrams(doc, summary.diagrams, y);
+    }
+    if (summary.tradeoffs && summary.tradeoffs.length > 0) {
+      y = addTradeoffs(doc, summary.tradeoffs, y);
+    }
+    if (summary.timestamps && summary.timestamps.length > 0) {
+      y = addTimestamps(doc, summary.timestamps, y);
+    }
+    if (summary.keyTakeaways && summary.keyTakeaways.length > 0) {
+      y = addTakeaways(doc, summary.keyTakeaways, y);
+    }
+  } else if (isProSummary(summary)) {
+    // Pro mode - dynamic sections
+    if (summary.overview) {
+      y = addOverview(doc, summary.overview, y);
+    }
+    if (summary.summary) {
+      y = addSummary(doc, summary.summary, y);
+    }
+    if (summary.sections && summary.sections.length > 0) {
+      const tocData = summary.sections.map(s => ({ title: s.heading, time: `${s.startTime} - ${s.endTime}` }));
+      y = addTableOfContents(doc, tocData, y);
+    }
+    if (summary.sections && summary.sections.length > 0) {
+      y = addProSections(doc, summary.sections, y);
+    }
+    if (summary.definitions && summary.definitions.length > 0) {
+      y = addDefinitions(doc, summary.definitions, y);
+    }
+    if (summary.callouts && summary.callouts.length > 0) {
+      y = addCallouts(doc, summary.callouts, y);
+    }
+    if (summary.qa && summary.qa.length > 0) {
+      y = addQA(doc, summary.qa, y);
+    }
+    if (summary.keyTakeaways && summary.keyTakeaways.length > 0) {
+      y = addTakeaways(doc, summary.keyTakeaways, y);
+    }
+  } else if (isSystemDesignProSummary(summary)) {
+    // System Design Pro mode - dynamic sections in logical order
+    if (summary.overview) {
+      y = addOverview(doc, summary.overview, y);
+    }
+    if (summary.summary) {
+      y = addSummary(doc, summary.summary, y);
+    }
+    
+    // TOC
+    if (summary.sections && summary.sections.length > 0) {
+      const tocData = summary.sections.map(s => ({ title: s.heading, time: `${s.startTime} - ${s.endTime}` }));
+      y = addTableOfContents(doc, tocData, y);
+    }
+    
+    // Capacity estimates (high-level first)
+    if (summary.capacityEstimates && summary.capacityEstimates.length > 0) {
+      y = addCapacityEstimates(doc, summary.capacityEstimates, y);
+    }
+    
+    // Data model (foundation)
+    if (summary.dataModel && summary.dataModel.length > 0) {
+      y = addDataModel(doc, summary.dataModel, y);
+    }
+    
+    // Sections with inline analysis
+    if (summary.sections && summary.sections.length > 0) {
+      for (const section of summary.sections) {
+        // Render section
+        y = cpb(doc, y, 20);
+        
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(22, 33, 62);
+        doc.text(section.heading, MG, y);
+        doc.setFontSize(8);
+        doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
+        doc.text(`${section.startTime} - ${section.endTime}`, PW - MG, y, { align: "right" });
+        y += LH + 2;
+        
+        if (section.sectionSummary) {
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(51, 51, 51);
+          const processedText = processReferences(section.sectionSummary);
+          y = addHighlightedText(doc, processedText, MG, y, CW);
+          y += 3;
         }
-        y = addDiagramInline(doc, diagram, imageMap.get(diagram.title) as { buffer: Buffer; format: "jpeg" | "png"; width: number; height: number } | undefined, y);
+        
+        if (section.keyPoints) {
+          for (const point of section.keyPoints) {
+            y = cpb(doc, y, LH);
+            doc.text(`• ${point}`, MG + 4, y);
+            y += LH;
+          }
+        }
+        y += 4;
+        
+        // Inline API design for this section
+        if (summary.apiDesign) {
+          const sectionAPIs = summary.apiDesign.filter(api => 
+            section.sectionSummary?.toLowerCase().includes(api.endpoint.toLowerCase())
+          );
+          if (sectionAPIs.length > 0) {
+            y = addApiDesign(doc, sectionAPIs, y);
+          }
+        }
+        
+        // Inline diagrams for this section
+        if (summary.diagrams) {
+          const sectionDiagrams = summary.diagrams.filter(d => 
+            d.relatedSection === section.heading
+          );
+          if (sectionDiagrams.length > 0) {
+            y = await addDiagrams(doc, sectionDiagrams, y);
+          }
+        }
+        
+        // Inline tradeoffs for this section
+        if (summary.tradeoffs) {
+          const sectionTradeoffs = summary.tradeoffs.filter(t => 
+            section.sectionSummary?.toLowerCase().includes(t.decision.toLowerCase())
+          );
+          if (sectionTradeoffs.length > 0) {
+            y = addTradeoffs(doc, sectionTradeoffs, y);
+          }
+        }
+        
+        y = sep(doc, y);
       }
     }
-
-    y = addDefinitions(doc, sdpro.definitions || [], y);
-    y = addCallouts(doc, sdpro.callouts || [], y);
-
-    if ((sdpro.tradeoffs || []).length > 0) {
-      y = addTradeoffs(doc, sdpro.tradeoffs, y);
+    
+    // Remaining sections in logical order
+    if (summary.failureScenarios && summary.failureScenarios.length > 0) {
+      y = addFailureScenarios(doc, summary.failureScenarios, y);
     }
-
-    y = addQA(doc, sdpro.qa || [], y);
-    y = addTimestamps(doc, sdpro.timestamps || [], y);
-    addTakeaways(doc, sdpro.keyTakeaways || [], y);
-  } else if (mode === "pro" && isProSummary(summary)) {
-    const pro = summary as ProSummary;
-
-    y = addProCoverPage(doc, pro.title, date, videoId);
-    y = addTableOfContents(doc, pro.sections || [], pro.focusAreas || [], y);
-    y = addOverview(doc, pro.overview || "", y);
-    y = addGist(doc, pro.gist || "", y, true);
-    y = addSummary(doc, pro.summary || "", y);
-    y = addProSections(doc, pro.sections || [], transcript || [], y);
-    y = addDefinitions(doc, pro.definitions || [], y);
-    y = addCallouts(doc, pro.callouts || [], y);
-    y = addQA(doc, pro.qa || [], y);
-    y = addTimestamps(doc, pro.timestamps || [], y);
-    addTakeaways(doc, pro.keyTakeaways || [], y);
-  } else if (mode === "system-design" && isSystemDesignSummary(summary)) {
-    const sd = summary as SystemDesignSummary;
-
-    y = addTitle(doc, sd.title, modeLabel, date, videoId);
-    y = addSummary(doc, sd.summary || "", y);
-    y = addGist(doc, sd.gist || "", y);
-    y = addTimestamps(doc, sd.timestamps || [], y);
-    y = await addDiagrams(doc, sd.diagrams || [], y);
-    y = addTradeoffs(doc, sd.tradeoffs || [], y);
-    addTakeaways(doc, sd.keyTakeaways || [], y);
-  } else {
-    y = addTitle(doc, summary.title, modeLabel, date, videoId);
-    y = addSummary(doc, summary.summary || "", y);
-    y = addGist(doc, summary.gist || "", y);
-    y = addTimestamps(doc, summary.timestamps || [], y);
-    addTakeaways(doc, summary.keyTakeaways || [], y);
+    if (summary.nfrs && summary.nfrs.length > 0) {
+      y = addNFRs(doc, summary.nfrs, y);
+    }
+    if (summary.definitions && summary.definitions.length > 0) {
+      y = addDefinitions(doc, summary.definitions, y);
+    }
+    if (summary.callouts && summary.callouts.length > 0) {
+      y = addCallouts(doc, summary.callouts, y);
+    }
+    if (summary.qa && summary.qa.length > 0) {
+      y = addQA(doc, summary.qa, y);
+    }
+    if (summary.keyTakeaways && summary.keyTakeaways.length > 0) {
+      y = addTakeaways(doc, summary.keyTakeaways, y);
+    }
+  } else if (isTechnicalCourseSummary(summary)) {
+    // Technical Course mode
+    if (summary.overview) {
+      y = addOverview(doc, summary.overview, y);
+    }
+    if (summary.targetAudience) {
+      y = addTargetAudience(doc, summary.targetAudience, y);
+    }
+    if (summary.lessons && summary.lessons.length > 0) {
+      y = addLessons(doc, summary.lessons, y, false);
+    }
+    if (summary.keyConcepts && summary.keyConcepts.length > 0) {
+      y = addKeyConcepts(doc, summary.keyConcepts, y);
+    }
+    if (summary.toolsMentioned && summary.toolsMentioned.length > 0) {
+      y = addToolsMentioned(doc, summary.toolsMentioned, y);
+    }
+    if (summary.keyTakeaways && summary.keyTakeaways.length > 0) {
+      y = addTakeaways(doc, summary.keyTakeaways, y);
+    }
+  } else if (isTechnicalCourseProSummary(summary)) {
+    // Technical Course Pro mode
+    if (summary.overview) {
+      y = addOverview(doc, summary.overview, y);
+    }
+    if (summary.targetAudience) {
+      y = addTargetAudience(doc, summary.targetAudience, y);
+    }
+    if (summary.prerequisites && summary.prerequisites.length > 0) {
+      y = addPrerequisites(doc, summary.prerequisites, y);
+    }
+    if (summary.lessons && summary.lessons.length > 0) {
+      const tocData = summary.lessons.map(l => ({ title: l.title, time: `${l.startTime} - ${l.endTime}` }));
+      y = addTableOfContents(doc, tocData, y);
+    }
+    if (summary.lessons && summary.lessons.length > 0) {
+      y = addLessons(doc, summary.lessons, y, true);
+    }
+    if (summary.keyConcepts && summary.keyConcepts.length > 0) {
+      y = addKeyConcepts(doc, summary.keyConcepts, y);
+    }
+    if (summary.implementationSteps && summary.implementationSteps.length > 0) {
+      y = addImplementationSteps(doc, summary.implementationSteps, y);
+    }
+    if (summary.commonPitfalls && summary.commonPitfalls.length > 0) {
+      y = addCommonPitfalls(doc, summary.commonPitfalls, y);
+    }
+    if (summary.toolsMentioned && summary.toolsMentioned.length > 0) {
+      y = addToolsMentioned(doc, summary.toolsMentioned, y);
+    }
+    if (summary.exerciseSuggestions && summary.exerciseSuggestions.length > 0) {
+      y = addExerciseSuggestions(doc, summary.exerciseSuggestions, y);
+    }
+    if (summary.bestPractices && summary.bestPractices.length > 0) {
+      y = addBestPractices(doc, summary.bestPractices, y);
+    }
+    if (summary.resources && summary.resources.length > 0) {
+      y = addResources(doc, summary.resources, y);
+    }
+    if (summary.keyTakeaways && summary.keyTakeaways.length > 0) {
+      y = addTakeaways(doc, summary.keyTakeaways, y);
+    }
   }
 
+  // Check page count and add overflow warning if needed
   const pageCount = doc.getNumberOfPages();
+  const recommended = RECOMMENDED_PAGES[mode];
+  
+  if (pageCount > recommended + MAX_OVERFLOW) {
+    // Add footer note on last page
+    doc.setPage(pageCount);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(150, 150, 150);
+    doc.text(`Extended content — ${pageCount} pages total (recommended: ${recommended})`, PW / 2, PH - 12, {
+      align: "center",
+    });
+  }
+
+  // Add page numbers to all pages
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
     doc.setFontSize(7);

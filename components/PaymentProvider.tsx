@@ -2,14 +2,16 @@
 
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 
+type PaidMode = "pro" | "system-design-pro" | "technical-course-pro";
+
 interface PaymentContextType {
   showPaymentModal: boolean;
-  pendingMode: "system-design-pro" | "pro" | null;
+  pendingMode: PaidMode | null;
   pendingVideoId: string | null;
   pendingVideoTitle: string | null;
-  openPayment: (mode: "system-design-pro" | "pro", videoId: string, videoTitle: string) => void;
+  openPayment: (mode: PaidMode, videoId: string, videoTitle: string) => void;
   closePayment: () => void;
-  isPaid: (mode: "system-design-pro" | "pro", videoId: string) => boolean;
+  isPaid: (mode: PaidMode, videoId: string) => boolean;
 }
 
 const PaymentContext = createContext<PaymentContextType | null>(null);
@@ -22,11 +24,11 @@ export function usePayment(): PaymentContextType {
 
 export function PaymentProvider({ children }: { children: ReactNode }) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [pendingMode, setPendingMode] = useState<"system-design-pro" | "pro" | null>(null);
+  const [pendingMode, setPendingMode] = useState<PaidMode | null>(null);
   const [pendingVideoId, setPendingVideoId] = useState<string | null>(null);
   const [pendingVideoTitle, setPendingVideoTitle] = useState<string | null>(null);
 
-  const openPayment = useCallback((mode: "system-design-pro" | "pro", videoId: string, videoTitle: string) => {
+  const openPayment = useCallback((mode: PaidMode, videoId: string, videoTitle: string) => {
     setPendingMode(mode);
     setPendingVideoId(videoId);
     setPendingVideoTitle(videoTitle);
@@ -40,7 +42,7 @@ export function PaymentProvider({ children }: { children: ReactNode }) {
     setPendingVideoTitle(null);
   }, []);
 
-  const isPaid = useCallback((mode: "system-design-pro" | "pro", videoId: string): boolean => {
+  const isPaid = useCallback((mode: PaidMode, videoId: string): boolean => {
     if (typeof window === "undefined") return false;
     const key = `payment_${mode}_${videoId}`;
     try {

@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from "react";
 
+type PaidMode = "pro" | "system-design-pro" | "technical-course-pro";
+
 interface PaymentModalProps {
-  mode: "system-design-pro" | "pro";
+  mode: PaidMode;
   videoId: string;
   videoTitle: string;
   onSuccess: () => void;
@@ -99,6 +101,8 @@ export function PaymentModal({ mode, videoId, videoTitle, onSuccess, onCancel }:
           name: "yt2pdf",
           description: mode === "system-design-pro"
             ? `System Design Pro PDF — ${videoTitle}`
+            : mode === "technical-course-pro"
+            ? `Technical Course Pro PDF — ${videoTitle}`
             : `Pro PDF — ${videoTitle}`,
           handler: async (response: RazorpayResponse) => {
             setState("verifying");

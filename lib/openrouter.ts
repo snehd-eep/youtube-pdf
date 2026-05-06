@@ -4,7 +4,7 @@ import {
   TranscriptEntry,
   SummaryResult,
 } from "./types";
-import { formatTranscript, NORMAL_PROMPT, SYSTEM_DESIGN_PROMPT, PRO_PROMPT, SYSTEM_DESIGN_PRO_PROMPT } from "./gemini";
+import { formatTranscript, NORMAL_PROMPT, SYSTEM_DESIGN_PROMPT, PRO_PROMPT, SYSTEM_DESIGN_PRO_PROMPT, TECHNICAL_COURSE_PROMPT, TECHNICAL_COURSE_PRO_PROMPT } from "./gemini";
 
 let openrouterClient: OpenAI | null = null;
 
@@ -43,10 +43,28 @@ export async function openrouterSummarize(
   const client = getOpenRouterClient();
 
   let systemPrompt: string;
-  if (mode === "normal") systemPrompt = NORMAL_PROMPT;
-  else if (mode === "system-design") systemPrompt = SYSTEM_DESIGN_PROMPT;
-  else if (mode === "system-design-pro") systemPrompt = SYSTEM_DESIGN_PRO_PROMPT;
-  else systemPrompt = PRO_PROMPT;
+  switch (mode) {
+    case "normal":
+      systemPrompt = NORMAL_PROMPT;
+      break;
+    case "system-design":
+      systemPrompt = SYSTEM_DESIGN_PROMPT;
+      break;
+    case "pro":
+      systemPrompt = PRO_PROMPT;
+      break;
+    case "system-design-pro":
+      systemPrompt = SYSTEM_DESIGN_PRO_PROMPT;
+      break;
+    case "technical-course":
+      systemPrompt = TECHNICAL_COURSE_PROMPT;
+      break;
+    case "technical-course-pro":
+      systemPrompt = TECHNICAL_COURSE_PRO_PROMPT;
+      break;
+    default:
+      systemPrompt = NORMAL_PROMPT;
+  }
 
   const formattedTranscript = formatTranscript(transcript);
 
@@ -79,6 +97,30 @@ ${formattedTranscript}`;
         .trim();
 
       const parsed = JSON.parse(cleanedText);
+      
+      // Check for insufficient content
+      if (parsed.insufficientContent) {
+        throw new Error(
+          `This video doesn't have enough content for ${mode} mode. ${parsed.reason || ""}`
+        );
+      }
+      
+      // Check for mode mismatch errors
+      if (parsed.mode === "system-design-pro" && parsed.isSystemDesign === false) {
+        throw new Error(
+          `SD_PRO_MISMATCH: This video appears to be a ${parsed.videoType || "non-system-design"} video, not a system design video.`
+        );
+      }
+      
+      if (parsed.mode === "technical-course-pro") {
+        const videoType = parsed.videoType || "";
+        if (videoType !== "course" && videoType !== "tutorial") {
+          throw new Error(
+            `TC_PRO_MISMATCH: This video appears to be a ${videoType || "non-course"} video, not a technical course.`
+          );
+        }
+      }
+      
       return parsed as SummaryResult;
     } catch (error) {
       lastError = error as Error;

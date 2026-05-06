@@ -16,11 +16,11 @@ export async function summarizeWithFailover(
   videoId: string
 ): Promise<SummaryResult> {
   const allProviders: { name: string; fn: () => Promise<SummaryResult>; envKey: string; modes: Mode[] }[] = [
-    { name: "Gemini", fn: () => geminiSummarize(transcript, mode, title, videoId), envKey: "GEMINI_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro"] },
-    { name: "Groq", fn: () => groqSummarize(transcript, mode, title, videoId), envKey: "GROQ_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro"] },
-    { name: "Cerebras", fn: () => cerebrasSummarize(transcript, mode, title, videoId), envKey: "CEREBRAS_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro"] },
-    { name: "Mistral", fn: () => mistralSummarize(transcript, mode, title, videoId), envKey: "MISTRAL_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro"] },
-    { name: "OpenRouter", fn: () => openrouterSummarize(transcript, mode, title, videoId), envKey: "OPENROUTER_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro"] },
+    { name: "Gemini", fn: () => geminiSummarize(transcript, mode, title, videoId), envKey: "GEMINI_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro", "technical-course", "technical-course-pro"] },
+    { name: "Groq", fn: () => groqSummarize(transcript, mode, title, videoId), envKey: "GROQ_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro", "technical-course", "technical-course-pro"] },
+    { name: "Cerebras", fn: () => cerebrasSummarize(transcript, mode, title, videoId), envKey: "CEREBRAS_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro", "technical-course", "technical-course-pro"] },
+    { name: "Mistral", fn: () => mistralSummarize(transcript, mode, title, videoId), envKey: "MISTRAL_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro", "technical-course", "technical-course-pro"] },
+    { name: "OpenRouter", fn: () => openrouterSummarize(transcript, mode, title, videoId), envKey: "OPENROUTER_API_KEY", modes: ["normal", "system-design", "system-design-pro", "pro", "technical-course", "technical-course-pro"] },
   ];
 
   const providers = allProviders.filter(p => isConfigured(p.envKey) && p.modes.includes(mode));

@@ -6,6 +6,9 @@ import { Mode } from "@/lib/types";
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID!;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET!;
 
+// All paid modes
+const PAID_MODES: Mode[] = ["pro", "system-design-pro", "technical-course-pro"];
+
 async function getRedis(): Promise<Redis> {
   const url = process.env.UPSTASH_REDIS_REST_URL!;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
@@ -28,9 +31,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { mode, videoId } = body;
 
-    if (!mode || (mode !== "system-design-pro" && mode !== "pro")) {
+    if (!mode || !PAID_MODES.includes(mode)) {
       return NextResponse.json(
-        { error: "Invalid mode. Payment is only required for system-design-pro and pro modes." },
+        { error: `Invalid mode. Payment is only required for: ${PAID_MODES.join(", ")}` },
         { status: 400 }
       );
     }

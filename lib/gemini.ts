@@ -5,242 +5,405 @@ import {
   SummaryResult,
 } from "./types";
 
-export const NORMAL_PROMPT = `You are an expert content summarizer. Given the following YouTube video transcript, generate a structured summary in JSON format.
+export const NORMAL_PROMPT = `You are an expert content summarizer. Given the following YouTube video transcript, generate a structured summary with DYNAMIC SECTIONS.
 
-IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no explanation.
+IMPORTANT: Analyze the video first, then include ONLY sections that are applicable and have content. Return ONLY valid JSON.
 
-The JSON must follow this exact structure:
+ANALYSIS PHASE:
+1. Determine video type: tutorial|course|talk|interview|other
+2. For each possible section, assess:
+   - Is this section relevant? (YES/NO)
+   - Confidence level (0-100%)
+   - Does it have substantial content? (YES/PARTIALLY/NO)
+3. Only include sections with >70% confidence AND substantial content
+
+POSSIBLE SECTIONS FOR NORMAL MODE:
+- overview: High-level description (include if general context exists)
+- summary: Comprehensive summary (include for most videos)
+- timestamps: Timeline of key moments (include if video has clear progression)
+- keyTakeaways: Actionable insights (include if lessons/tips present)
+
+JSON STRUCTURE:
 {
-  "title": "inferred video title or main topic",
-  "summary": "A comprehensive 2-3 paragraph summary covering the main points of the video",
-  "timestamps": [
-    { "time": "MM:SS", "topic": "Short topic name", "description": "Brief 1-2 sentence description of what is discussed" }
+  "title": "inferred video title",
+  "mode": "normal",
+  "videoType": "tutorial|course|talk|interview|other",
+  "sectionsIncluded": ["overview", "summary", "timestamps", "keyTakeaways"],
+  "sectionsSkipped": ["sections not applicable"],
+  "sectionMetadata": [
+    {"sectionId": "overview", "present": true, "confidence": 95, "inferred": false}
   ],
-  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3", "takeaway 4", "takeaway 5"],
-  "gist": "One-line essence of the entire video"
+  "content": {
+    "overview": "2-3 sentence overview if applicable",
+    "summary": "Comprehensive 2-3 paragraph summary",
+    "timestamps": [
+      { "time": "MM:SS", "topic": "Topic", "description": "Description" }
+    ],
+    "keyTakeaways": ["takeaway 1", "takeaway 2"]
+  }
 }
 
-Rules:
-- Generate 8-15 timestamp entries depending on video length
-- Time format must be MM:SS (e.g., 01:30, 12:45)
-- keyTakeaways should have 5-8 items
-- The gist should be a single powerful sentence
+RULES:
+- Include minimum 3 sections or indicate "insufficientContent": true
+- Time format must be MM:SS
+- 5-10 timestamps if included
+- 3-6 key takeaways if included
 - Write in clear, professional English
-- Focus on actionable insights and key concepts
 
 Transcript:
 `;
 
-export const SYSTEM_DESIGN_PROMPT = `You are an expert system design educator and technical architect. Given the following YouTube video transcript about a system design or technical topic, generate a detailed structured summary in JSON format.
+export const SYSTEM_DESIGN_PROMPT = `You are an expert system design educator. Given the following YouTube video transcript, generate a structured summary with DYNAMIC SECTIONS.
 
-IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no explanation.
+ANALYSIS PHASE:
+1. Confirm this is a system design video (architecture, scalability, distributed systems)
+2. For each section, assess relevance, confidence (>70%), and content presence
+3. Include ONLY sections that apply to this specific video
 
-The JSON must follow this exact structure:
+POSSIBLE SECTIONS (in logical order):
+1. overview: High-level system description
+2. summary: Comprehensive summary of design concepts
+3. diagrams: Architecture diagrams (flowcharts ONLY, max 8 nodes, 3 diagrams max)
+4. tradeoffs: Design decisions with pros/cons
+5. timestamps: Timeline of design discussion
+6. keyTakeaways: Key architectural lessons
+
+JSON STRUCTURE:
 {
-  "title": "inferred video title or main topic",
-  "summary": "A comprehensive 2-3 paragraph summary of the system design concepts discussed",
-  "timestamps": [
-    { "time": "MM:SS", "topic": "Short topic name", "description": "Brief 1-2 sentence description" }
+  "title": "System name or topic",
+  "mode": "system-design",
+  "videoType": "system-design",
+  "sectionsIncluded": ["overview", "summary", "diagrams", "tradeoffs", "keyTakeaways"],
+  "sectionsSkipped": ["timestamps"],
+  "sectionMetadata": [
+    {"sectionId": "diagrams", "present": true, "confidence": 90, "inferred": false}
   ],
-  "diagrams": [
-    {
-      "title": "Diagram title",
-      "mermaidCode": "valid mermaid.js syntax",
-      "description": "What this diagram illustrates"
-    }
-  ],
-  "tradeoffs": [
-    { "decision": "The design decision made", "pros": ["advantage 1", "advantage 2"], "cons": ["disadvantage 1", "disadvantage 2"] }
-  ],
-  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3", "takeaway 4", "takeaway 5"],
-  "gist": "One-line essence of the system design topic"
+  "content": {
+    "overview": "System overview",
+    "summary": "Detailed summary",
+    "diagrams": [
+      {
+        "title": "High-level Architecture",
+        "mermaidCode": "graph TD\\n  A[Client] --> B[Load Balancer]\\n  B --> C[Server]",
+        "description": "Architecture description"
+      }
+    ],
+    "tradeoffs": [
+      { "decision": "SQL vs NoSQL", "pros": ["pro1"], "cons": ["con1"] }
+    ],
+    "timestamps": [{"time": "MM:SS", "topic": "Topic", "description": "Desc"}],
+    "keyTakeaways": ["lesson 1", "lesson 2"]
+  }
 }
 
-IMPORTANT RULES for mermaidCode:
-- Use ONLY valid Mermaid.js syntax
-- ONLY use "graph TD" or "flowchart TD" — do NOT use sequenceDiagram, classDiagram, erDiagram, or stateDiagram-v2
-- Keep diagrams VERY SIMPLE: max 6-8 nodes per diagram
-- Use descriptive node labels in quotes
-- Node IDs must be simple single letters (A, B, C, etc.)
-- Use only these arrow types: --> (solid), -.-> (dashed), ==> (thick)
-- Do NOT use subgraphs, styling directives, classDef, click, or any %% directives
-- Do NOT use special characters in labels (no colons, semicolons inside quotes)
-- Example: graph TD\n  A["Client"] --> B["Load Balancer"]\n  B --> C["Server"]\n  B --> D["Cache"]
-- Generate exactly 3 diagrams: 1) High-level architecture 2) Data flow 3) Key component interaction
-- Each diagram MUST be under 10 lines of Mermaid code
-- Every mermaidCode MUST be a complete, valid diagram that renders without errors
-- CRITICAL: Keep mermaidCode minimal. Complex diagrams time out. Less is more.
+DIAGRAM RULES:
+- Use ONLY "graph TD" or "flowchart TD"
+- Max 8 nodes per diagram
+- Node IDs: single letters A-H
+- Descriptive labels in quotes
+- No special characters in labels
+- 2-3 diagrams maximum
 
-Rules:
-- Generate 8-15 timestamp entries depending on video length
-- Time format must be MM:SS (e.g., 01:30, 12:45)
-- Generate 2-4 Mermaid diagrams that illustrate the system architecture
-- Include 3-6 tradeoffs explaining design decisions
-- keyTakeaways should have 5-8 items
-- Focus on architectural patterns, scalability, and real-world applicability
+SECTION INCLUSION:
+- Include minimum 3 sections
+- diagrams: Only if architecture is discussed
+- tradeoffs: Only if design decisions are explained
+- timestamps: Optional, include if clear timeline
 
 Transcript:
 `;
 
-export const PRO_PROMPT = `You are an expert content analyst and technical writer. Your task is to transform a YouTube video transcript into a comprehensive, structured document that captures EVERY concept, example, and explanation from the video.
+export const PRO_PROMPT = `You are an expert content analyst. Transform a YouTube video transcript into a structured document with DYNAMIC SECTIONS.
 
-IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no explanation.
+ANALYSIS PHASE:
+1. Determine video type and structure
+2. Evaluate each possible section for relevance (>70% confidence) and content
+3. Include ONLY sections with substantial, valuable content
 
-The JSON must follow this exact structure:
+POSSIBLE SECTIONS (logical order):
+1. overview: What this video covers and who it's for
+2. summary: Comprehensive 4-5 paragraph summary
+3. tableOfContents: List of sections with timestamps
+4. sections: 5-10 logical sections covering distinct topics
+   - Each section: heading, startTime, endTime, sectionSummary, keyPoints
+5. definitions: Technical terms explained (inline with sections where introduced)
+6. callouts: Insights, warnings, tips (linked to specific sections)
+7. qa: Questions the video answers
+8. keyTakeaways: Actionable lessons
+
+JSON STRUCTURE:
 {
-  "title": "inferred video title",
-  "summary": "A comprehensive 4-5 paragraph summary that covers ALL major topics discussed in the video. Do not omit any significant point. Write as if explaining the entire video to someone who hasn't seen it.",
-  "timestamps": [
-    { "time": "MM:SS", "topic": "Specific topic name", "description": "A detailed 2-3 sentence description of what is discussed at this timestamp, including key examples or explanations" }
+  "title": "Video title",
+  "mode": "pro",
+  "videoType": "tutorial|course|talk|interview|other",
+  "sectionsIncluded": ["overview", "summary", "sections", "keyTakeaways"],
+  "sectionsSkipped": ["definitions", "callouts", "qa"],
+  "sectionMetadata": [
+    {"sectionId": "sections", "present": true, "confidence": 95, "inferred": false}
   ],
-  "sections": [
-    {
-      "heading": "Clear section heading that captures the topic",
-      "startTime": "MM:SS",
-      "endTime": "MM:SS",
-      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"],
-      "sectionSummary": "A detailed 3-5 sentence summary of what is covered in this section, capturing the key arguments, examples, and explanations. This replaces the raw transcript."
-    }
-  ],
-  "overview": "2-3 sentences describing what this video is generally about — the big picture themes and who would benefit from watching it",
-  "focusAreas": ["Main theme or topic 1", "Main theme or topic 2", "Main theme or topic 3"],
-  "definitions": [
-    { "term": "Technical term or jargon", "explanation": "Clear, concise explanation of what this term means in the context of the video" }
-  ],
-  "callouts": [
-    { "type": "insight", "title": "Important insight", "content": "The full explanation of this insight from the video" }
-  ],
-  "qa": [
-    { "question": "A question this video section answers", "answer": "The complete answer based on the video content" }
-  ],
-  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3", "takeaway 4", "takeaway 5", "takeaway 6", "takeaway 7", "takeaway 8"],
-  "gist": "One-line essence of the entire video"
+  "content": {
+    "overview": "What this video covers",
+    "summary": "Comprehensive summary",
+    "sections": [
+      {
+        "heading": "Section Title",
+        "startTime": "MM:SS",
+        "endTime": "MM:SS",
+        "sectionSummary": "3-5 sentence summary. {critical}Important terms{/critical} marked.",
+        "keyPoints": ["point 1", "point 2"]
+      }
+    ],
+    "definitions": [{"term": "Term", "explanation": "Definition", "introducedIn": "Section Title"}],
+    "callouts": [{"type": "insight", "title": "Title", "content": "Content"}],
+    "qa": [{"question": "Q", "answer": "A"}],
+    "keyTakeaways": ["takeaway 1", "takeaway 2"]
+  }
 }
 
-CRITICAL RULES — YOU MUST FOLLOW ALL OF THESE:
-
-1. SECTIONS (most important): Divide the video into 5-10 meaningful sections. Each section should cover a distinct topic or concept. For each section provide:
-   - heading: A clear, descriptive section title
-   - startTime/endTime: MM:SS format marking when this section starts and ends in the video
-   - keyPoints: 3-5 bullet points capturing the essential ideas from this section
-   - sectionSummary: A detailed 3-5 sentence summary of what is covered in this section, including key arguments, examples, and explanations. This is the MOST important field — it replaces printing the raw transcript.
-
-2. TIMESTAMPS: Generate 15-25 timestamp entries with DETAILED descriptions (2-3 sentences each). Cover every significant moment in the video.
-
-3. DEFINITIONS: List ALL technical terms, jargon, acronyms, and concepts mentioned in the video. Each must have a clear explanation. Include 8-20 terms.
-
-4. CALLOUTS: Extract 5-10 notable points from the video:
-   - "insight" — important realizations or conclusions the speaker draws
-   - "warning" — pitfalls, common mistakes, or things to be careful about
-   - "tip" — practical advice or recommendations from the speaker
-   Each callout must have a specific title and detailed content.
-
-5. Q&A: Create 6-10 questions that the video explicitly or implicitly answers. Each answer should be comprehensive (2-3 sentences), based purely on video content.
-
-6. FOCUS AREAS: List 3-6 main themes or topics the video focuses on.
-
-7. OVERVIEW: Write 2-3 sentences about what the video covers generally and who it's for.
-
-8. KEY TAKEAWAYS: 8-12 actionable takeaways that capture the most important lessons.
-
-9. SUMMARY: 4-5 paragraphs that comprehensively cover ALL topics. Do not skip or abbreviate any major point.
-
-10. DO NOT SUMMARIZE AWAY CONTENT. Every concept, example, and explanation from the video should appear somewhere in the output — either in section summaries, definitions, callouts, Q&A, or timestamps.
+CRITICAL RULES:
+- Minimum 3 sections or set "insufficientContent": true
+- sectionSummary REQUIRED for each section - NEVER use raw transcript
+- Mark important keywords with {critical}term{/critical}
+- Definitions only for terms actually explained in video
+- Callouts only for notable points explicitly made
+- Q&A only for questions actually addressed
 
 Transcript:
 `;
 
-export const SYSTEM_DESIGN_PRO_PROMPT = `You are an expert system design educator and technical architect. Your task is to transform a YouTube video transcript into a comprehensive, structured document with architecture diagrams and detailed analysis.
+export const SYSTEM_DESIGN_PRO_PROMPT = `You are an expert system design architect. Transform a system design video into a comprehensive analysis with DYNAMIC SECTIONS.
 
-IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no explanation.
-
-The JSON must follow this exact structure:
+PHASE 1 - VIDEO CLASSIFICATION:
 {
-  "title": "inferred video title",
-  "summary": "A comprehensive 4-5 paragraph summary that covers ALL major topics discussed in the video. Do not omit any significant point.",
-  "timestamps": [
-    { "time": "MM:SS", "topic": "Specific topic name", "description": "A detailed 2-3 sentence description of what is discussed at this timestamp" }
-  ],
-  "sections": [
-    {
-      "heading": "Clear section heading that captures the topic",
-      "startTime": "MM:SS",
-      "endTime": "MM:SS",
-      "keyPoints": ["Key point 1 from this section", "Key point 2", "Key point 3"],
-      "sectionSummary": "A detailed 3-5 sentence summary of what is covered in this section, capturing the key arguments, examples, and explanations. This replaces the raw transcript."
-    }
-  ],
-  "overview": "2-3 sentences describing what this video is generally about — the big picture themes and who would benefit from watching it",
-  "focusAreas": ["Main theme or topic 1", "Main theme or topic 2", "Main theme or topic 3"],
-  "definitions": [
-    { "term": "Technical term or jargon", "explanation": "Clear, concise explanation of what this term means in the context of the video" }
-  ],
-  "callouts": [
-    { "type": "insight", "title": "Important insight", "content": "The full explanation of this insight from the video" }
-  ],
-  "qa": [
-    { "question": "A question this video section answers", "answer": "The complete answer based on the video content" }
-  ],
-  "diagrams": [
-    {
-      "title": "Diagram title",
-      "mermaidCode": "valid mermaid.js syntax",
-      "description": "What this diagram illustrates",
-      "diagramType": "flowchart|sequence|class|er|state|mindmap"
-    }
-  ],
-  "tradeoffs": [
-    { "decision": "The design decision made", "pros": ["advantage 1", "advantage 2"], "cons": ["disadvantage 1", "disadvantage 2"] }
-  ],
-  "isSystemDesign": true,
   "videoType": "system-design|tutorial|talk|interview|other",
-  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3", "takeaway 4", "takeaway 5", "takeaway 6", "takeaway 7", "takeaway 8"],
-  "gist": "One-line essence of the entire video"
+  "isSystemDesign": true|false,
+  "confidence": 0-100
 }
 
-PHASE 1 — ANALYZE THE VIDEO:
-Determine whether this video is primarily about system design/architecture. Set:
-- isSystemDesign: true if the video discusses system architecture, design patterns, distributed systems, databases, scalability, or infrastructure design. false otherwise.
-- videoType: one of "system-design", "tutorial", "talk", "interview", "other"
+If isSystemDesign is false or confidence < 70%, set "insufficientContent": true with reason.
 
-PHASE 2 — ALWAYS GENERATE (regardless of video type):
-1. SECTIONS: Divide the video into 5-10 meaningful sections with headings, time ranges, key points, and sectionSummary (3-5 sentence summary of what is covered in each section).
-2. TIMESTAMPS: 15-25 entries with detailed descriptions.
-3. DEFINITIONS: 8-20 technical terms with clear explanations.
-4. CALLOUTS: 5-10 notable points (insight/warning/tip).
-5. Q&A: 6-10 questions the video answers.
-6. FOCUS AREAS: 3-6 main themes.
-7. OVERVIEW: 2-3 sentences about the video.
-8. KEY TAKEAWAYS: 8-12 items.
-9. SUMMARY: 4-5 comprehensive paragraphs.
-10. DO NOT SUMMARIZE AWAY CONTENT. Every concept should appear somewhere.
+PHASE 2 - SECTION ANALYSIS (only if system design):
+For each possible section, determine: relevance, confidence (>70%), content presence, inferred vs explicit
 
-PHASE 3 — DIAGRAMS AND TRADE-OFFS:
-If isSystemDesign is true, generate 3-7 diagrams using DIFFERENT diagram types appropriate to the content. Each diagram MUST have a "diagramType" field. Use these Mermaid.js diagram types:
+POSSIBLE SECTIONS (logical order):
+1. overview: System context and purpose
+2. summary: Comprehensive 4-5 paragraph technical summary
+3. capacityEstimates: Back-of-envelope calculations (generate realistic numbers even if not stated)
+4. dataModel: Entities, attributes, relationships
+5. sections: Logical breakdown of design discussion (5-10 sections)
+6. apiDesign: Key endpoints (only if APIs discussed - otherwise skip)
+7. diagrams: Architecture visualizations (inline with sections, 3-5 diagrams, max 8 nodes)
+8. tradeoffs: Design decisions with pros/cons (always include if SD video)
+9. failureScenarios: Failure modes and mitigations (include if discussed)
+10. nfrs: Non-functional requirements (include if discussed)
+11. definitions: Technical terms
+12. callouts: Insights, warnings, tips
+13. qa: System design Q&A
+14. keyTakeaways: Critical lessons
 
-- flowchart TD or flowchart LR — for architecture overviews, component relationships, data pipelines
-  Rules: Node IDs as single letters A-J, descriptive labels in quotes, max 10 nodes, no subgraphs, no classDef, no style directives
+JSON STRUCTURE:
+{
+  "title": "System name",
+  "mode": "system-design-pro",
+  "videoType": "system-design",
+  "isSystemDesign": true,
+  "sectionsIncluded": ["overview", "summary", "capacityEstimates", "dataModel", "sections", ...],
+  "sectionsSkipped": ["apiDesign", "failureScenarios", ...],
+  "sectionMetadata": [
+    {"sectionId": "capacityEstimates", "present": true, "confidence": 85, "inferred": true, "note": "Generated typical values for this system type"}
+  ],
+  "content": {
+    "overview": "System context",
+    "summary": "Comprehensive summary with {critical}key terms{/critical} marked",
+    "capacityEstimates": [
+      {"metric": "DAU", "value": "10 million", "explanation": "Typical for consumer app"}
+    ],
+    "dataModel": [
+      {"entity": "User", "attributes": ["id", "name", "email"], "relationships": ["Posts (1:N)"]}
+    ],
+    "sections": [
+      {
+        "heading": "High-level Design",
+        "startTime": "MM:SS",
+        "endTime": "MM:SS",
+        "sectionSummary": "Summary with {critical}important concepts{/critical} marked",
+        "keyPoints": ["point 1", "point 2"]
+      }
+    ],
+    "apiDesign": [
+      {"endpoint": "/api/users", "method": "GET", "description": "List users", "requestParams": ["limit"], "responseParams": ["users"]}
+    ],
+    "diagrams": [
+      {
+        "title": "Architecture",
+        "mermaidCode": "graph TD\\n  A --> B",
+        "description": "Description",
+        "diagramType": "flowchart|sequence|class|er|state|mindmap",
+        "relatedSection": "Section Title"
+      }
+    ],
+    "tradeoffs": [{"decision": "Choice", "pros": ["pro"], "cons": ["con"]}],
+    "failureScenarios": [{"scenario": "What fails", "impact": "Effect", "mitigation": "Solution"}],
+    "nfrs": [{"category": "scalability", "requirements": ["99.9% uptime"]}],
+    "definitions": [{"term": "Term", "explanation": "Definition", "introducedIn": "Section Title"}],
+    "callouts": [{"type": "insight", "title": "Title", "content": "Content"}],
+    "qa": [{"question": "Q", "answer": "A"}],
+    "keyTakeaways": ["critical lesson 1", "critical lesson 2"]
+  }
+}
 
-- sequenceDiagram — for request/response flows, API interactions, protocol sequences
-  Rules: Use "participant" declarations, max 8 participants, use ->> (solid) and -->> (dashed), use alt/else for conditionals, no "Note over" for long text
+CRITICAL RULES:
+- Minimum 4 sections or set "insufficientContent": true
+- capacityEstimates: ALWAYS include with realistic numbers (mark as inferred if not explicit)
+- dataModel: ALWAYS include for system design
+- apiDesign: Only if video discusses APIs, otherwise set to null
+- diagrams: Max 8 nodes, multiple diagram types allowed, link to sections
+- tradeoffs: Always include for SD videos (minimum 3)
+- failureScenarios: Include only if discussed (don't invent)
+- nfrs: Include only if discussed
+- Use {critical}term{/critical} for important keywords
+- Add [REF:section-heading] for cross-references
 
-- classDiagram — for data models, entity relationships, class hierarchies
-  Rules: Use PascalCase for class names, <|-- for inheritance, *-- for composition, --> for association, include 3-6 attributes per class
+Transcript:
+`;
 
-- erDiagram — for database schemas, entity-relationship models
-  Rules: Use ||--o{ for one-to-many, ||--|| for one-to-one, include key attributes, max 6 entities
+export const TECHNICAL_COURSE_PROMPT = `You are an expert technical educator. Transform a programming/technology course video into a structured learning document with DYNAMIC SECTIONS.
 
-- stateDiagram-v2 — for state machines, lifecycle flows, process states
-  Rules: Use [*] --> for initial state, include state transitions with labels, max 8 states
+ANALYSIS PHASE:
+1. Classify: Is this a technical course/tutorial? (confidence 0-100)
+2. Identify: Target audience, topics covered, structure
+3. Select: Only sections with >70% confidence and substantial content
 
-- mindmap — for concept maps, topic hierarchies, brainstorming relationships
-  Rules: Use ((root topic)) format, max 3 levels deep, max 15 nodes total
+POSSIBLE SECTIONS:
+1. overview: Course description and learning outcomes
+2. targetAudience: Beginner/intermediate/advanced (only if explicitly stated)
+3. lessons: Chronological lessons/modules (5-10 lessons)
+4. keyConcepts: Technical concepts introduced (with lesson references)
+5. toolsMentioned: Technologies, frameworks, tools used
+6. keyTakeaways: What the learner should remember
 
-Choose diagram types that best illustrate the specific system being discussed. A load balancer topic might use flowchart + sequence, a database topic might use erDiagram + classDiagram, etc.
+JSON STRUCTURE:
+{
+  "title": "Course title",
+  "mode": "technical-course",
+  "videoType": "course|tutorial",
+  "sectionsIncluded": ["overview", "lessons", "keyTakeaways"],
+  "sectionsSkipped": ["targetAudience", "toolsMentioned"],
+  "sectionMetadata": [
+    {"sectionId": "lessons", "present": true, "confidence": 98, "inferred": false}
+  ],
+  "content": {
+    "overview": "What this course teaches",
+    "targetAudience": "beginner|intermediate|advanced",
+    "lessons": [
+      {
+        "title": "Lesson 1: Introduction",
+        "startTime": "MM:SS",
+        "endTime": "MM:SS",
+        "concepts": ["concept 1", "concept 2"],
+        "keyPoints": ["point 1", "point 2"]
+      }
+    ],
+    "keyConcepts": [
+      {"term": "Concept", "definition": "Explanation", "introducedIn": "Lesson 1: Introduction"}
+    ],
+    "toolsMentioned": ["Tool 1", "Tool 2"],
+    "keyTakeaways": ["learning 1", "learning 2"]
+  }
+}
 
-If isSystemDesign is false, set diagrams to an empty array and generate tradeoffs as general pros/cons of the approach/tools discussed (3-4 items).
+CRITICAL RULES:
+- Minimum 3 sections or set "insufficientContent": true
+- Lessons must be in chronological order (video progression)
+- targetAudience: Only if explicitly mentioned in video
+- toolsMentioned: Only tools actually demonstrated/discussed
+- keyConcepts: Link each to the lesson where introduced
+- Use {critical}term{/critical} for important technical terms
 
-ALWAYS generate 4-6 tradeoffs with meaningful pros and cons.
+Transcript:
+`;
+
+export const TECHNICAL_COURSE_PRO_PROMPT = `You are an expert technical educator and curriculum designer. Transform a course video into a comprehensive learning resource with DYNAMIC SECTIONS.
+
+PHASE 1 - VIDEO CLASSIFICATION:
+Classify as course|tutorial and assess confidence. If not technical content, set "insufficientContent": true.
+
+PHASE 2 - SECTION ANALYSIS:
+For each possible section: assess relevance (>70% confidence), content presence, inferred vs explicit.
+
+POSSIBLE SECTIONS (logical + chronological mix):
+1. overview: Course description and outcomes
+2. targetAudience: Level (only if explicitly stated)
+3. prerequisites: Skills needed (only if explicitly mentioned)
+4. lessons: Chronological lessons (5-10, core structure)
+   - For each lesson: codeExamples, keyConcepts (inline)
+5. keyConcepts: Glossary of all concepts (with lesson references)
+6. implementationSteps: Project/course steps (if applicable)
+7. commonPitfalls: Mistakes to avoid (inline with lessons or separate)
+8. toolsMentioned: Complete list of technologies
+9. codeExamples: Extracted code from video (organized by lesson)
+10. exerciseSuggestions: Practice exercises (AI-generated based on content)
+11. bestPractices: Industry standards mentioned
+12. resources: Links, docs mentioned (only if explicit)
+13. keyTakeaways: Critical learnings
+
+JSON STRUCTURE:
+{
+  "title": "Course title",
+  "mode": "technical-course-pro",
+  "videoType": "course|tutorial",
+  "sectionsIncluded": ["overview", "lessons", "keyConcepts", "exerciseSuggestions", "keyTakeaways"],
+  "sectionsSkipped": ["prerequisites", "implementationSteps", "resources"],
+  "sectionMetadata": [
+    {"sectionId": "codeExamples", "present": true, "confidence": 90, "inferred": false}
+  ],
+  "content": {
+    "overview": "Course description",
+    "targetAudience": "beginner|intermediate|advanced",
+    "prerequisites": ["Prerequisite 1", "Prerequisite 2"],
+    "lessons": [
+      {
+        "title": "Lesson 1: Setup",
+        "startTime": "00:00",
+        "endTime": "05:30",
+        "concepts": ["Environment setup", "Dependencies"],
+        "keyPoints": ["Install Node.js", "Initialize project"],
+        "codeExamples": [
+          {
+            "language": "bash",
+            "code": "npm init -y",
+            "explanation": "Initialize Node.js project",
+            "timestamp": "02:15"
+          }
+        ],
+        "pitfalls": ["Don't forget to save dependencies"],
+        "bestPractices": ["Use latest LTS version"],
+        "exerciseSuggestions": ["Set up your own project"]
+      }
+    ],
+    "keyConcepts": [
+      {"term": "npm", "definition": "Node package manager", "introducedIn": "Lesson 1: Setup"}
+    ],
+    "implementationSteps": ["Step 1", "Step 2"],
+    "commonPitfalls": ["Mistake 1", "Mistake 2"],
+    "toolsMentioned": ["Node.js", "npm", "VS Code"],
+    "exerciseSuggestions": ["Exercise 1", "Exercise 2"],
+    "bestPractices": ["Practice 1", "Practice 2"],
+    "resources": ["https://nodejs.org", "https://npmjs.com"],
+    "keyTakeaways": ["Learning 1", "Learning 2"]
+  }
+}
+
+CRITICAL RULES:
+- Minimum 4 sections or set "insufficientContent": true
+- Lessons: Chronological order, 5-10 lessons
+- prerequisites: ONLY if explicitly stated in video (not inferred)
+- codeExamples: Extract actual code shown/discussed
+- exerciseSuggestions: Generate 2-3 per lesson or 5-10 total
+- resources: ONLY URLs/links actually mentioned
+- Inline content (pitfalls, bestPractices, exercises) within lessons
+- Use {critical}term{/critical} for important keywords
+- Add [REF:lesson-title] for cross-references between lessons
 
 Transcript:
 `;
@@ -279,102 +442,145 @@ function isRateLimitError(error: unknown): boolean {
   return false;
 }
 
+function flattenContent(parsed: Record<string, unknown>): void {
+  const content = parsed.content;
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    const contentObj = content as Record<string, unknown>;
+    for (const key of Object.keys(contentObj)) {
+      if (!(key in parsed) || parsed[key] === undefined || parsed[key] === null) {
+        parsed[key] = contentObj[key];
+      }
+    }
+    delete parsed.content;
+  }
+}
+
+function normalizeBaseSummary(parsed: Record<string, unknown>): void {
+  flattenContent(parsed);
+  if (!Array.isArray(parsed.sectionsIncluded)) parsed.sectionsIncluded = [];
+  if (!Array.isArray(parsed.sectionsSkipped)) parsed.sectionsSkipped = [];
+  if (!Array.isArray(parsed.sectionMetadata)) parsed.sectionMetadata = [];
+  if (typeof parsed.videoType !== "string") parsed.videoType = "other";
+}
+
+function normalizeNormalSummary(parsed: Record<string, unknown>): void {
+  normalizeBaseSummary(parsed);
+  parsed.mode = "normal";
+}
+
+function normalizeSystemDesignSummary(parsed: Record<string, unknown>): void {
+  normalizeBaseSummary(parsed);
+  parsed.mode = "system-design";
+  
+  if (!Array.isArray(parsed.diagrams)) parsed.diagrams = [];
+  if (!Array.isArray(parsed.tradeoffs)) parsed.tradeoffs = [];
+  
+  parsed.diagrams = (parsed.diagrams as unknown[]).map(
+    (d: unknown) => ({
+      title: (d as Record<string, string>).title || "Untitled",
+      mermaidCode: ((d as Record<string, string>).mermaidCode || "").replace(/\\n/g, "\n"),
+      description: (d as Record<string, string>).description || "",
+    })
+  );
+}
+
 function normalizeProSummary(parsed: Record<string, unknown>): void {
+  normalizeBaseSummary(parsed);
+  parsed.mode = "pro";
+  
   if (!Array.isArray(parsed.sections)) parsed.sections = [];
   if (!Array.isArray(parsed.definitions)) parsed.definitions = [];
   if (!Array.isArray(parsed.callouts)) parsed.callouts = [];
   if (!Array.isArray(parsed.qa)) parsed.qa = [];
-  if (!Array.isArray(parsed.focusAreas)) parsed.focusAreas = [];
-  if (typeof parsed.overview !== "string") parsed.overview = "";
-
+  
   parsed.sections = (parsed.sections as unknown[]).map(
-    (item) => {
-      const s = item as Record<string, unknown>;
-      return {
-        heading: (s.heading as string) || "Untitled Section",
-        startTime: (s.startTime as string) || "00:00",
-        endTime: (s.endTime as string) || "00:00",
-        keyPoints: Array.isArray(s.keyPoints)
-          ? (s.keyPoints as unknown[]).map((p: unknown) => String(p))
-          : [],
-      };
-    }
+    (s: unknown) => ({
+      heading: (s as Record<string, string>).heading || "Untitled Section",
+      startTime: (s as Record<string, string>).startTime || "00:00",
+      endTime: (s as Record<string, string>).endTime || "00:00",
+      keyPoints: Array.isArray((s as Record<string, unknown>).keyPoints) 
+        ? (s as Record<string, unknown[]>).keyPoints.map(String)
+        : [],
+      sectionSummary: (s as Record<string, string>).sectionSummary || "",
+    })
   );
-
-  parsed.definitions = (parsed.definitions as unknown[]).map(
-    (item) => {
-      const d = item as Record<string, unknown>;
-      return {
-        term: (d.term as string) || "Unknown term",
-        explanation: (d.explanation as string) || "",
-      };
-    }
-  );
-
-  parsed.callouts = (parsed.callouts as unknown[]).map(
-    (item) => {
-      const c = item as Record<string, unknown>;
-      return {
-        type: (["insight", "warning", "tip"] as string[]).includes(c.type as string)
-          ? c.type
-          : "insight",
-        title: (c.title as string) || "Note",
-        content: (c.content as string) || "",
-      };
-    }
-  );
-
-  parsed.qa = (parsed.qa as unknown[]).map(
-    (item) => {
-      const q = item as Record<string, unknown>;
-      return {
-        question: (q.question as string) || "",
-        answer: (q.answer as string) || "",
-      };
-    }
-  );
-
-  parsed.focusAreas = (parsed.focusAreas as unknown[]).map((f: unknown) => String(f));
-
-  if (!Array.isArray(parsed.keyTakeaways)) parsed.keyTakeaways = [];
-  parsed.keyTakeaways = (parsed.keyTakeaways as unknown[]).map((t: unknown) => String(t));
 }
 
 function normalizeSystemDesignProSummary(parsed: Record<string, unknown>): void {
   normalizeProSummary(parsed);
-
+  parsed.mode = "system-design-pro";
+  
+  if (typeof parsed.isSystemDesign !== "boolean") parsed.isSystemDesign = true;
+  if (!Array.isArray(parsed.capacityEstimates)) parsed.capacityEstimates = [];
+  if (!Array.isArray(parsed.dataModel)) parsed.dataModel = [];
+  if (!Array.isArray(parsed.apiDesign)) parsed.apiDesign = [];
+  if (!Array.isArray(parsed.failureScenarios)) parsed.failureScenarios = [];
+  if (!Array.isArray(parsed.nfrs)) parsed.nfrs = [];
   if (!Array.isArray(parsed.diagrams)) parsed.diagrams = [];
   if (!Array.isArray(parsed.tradeoffs)) parsed.tradeoffs = [];
-  if (typeof parsed.isSystemDesign !== "boolean") parsed.isSystemDesign = true;
-  const validVideoTypes = ["system-design", "tutorial", "talk", "interview", "other"] as const;
-  if (!validVideoTypes.includes(parsed.videoType as typeof validVideoTypes[number])) {
-    parsed.videoType = "other";
-  }
-
+  
   parsed.diagrams = (parsed.diagrams as unknown[]).map(
-    (item) => {
-      const d = item as Record<string, unknown>;
-      const validTypes = ["flowchart", "sequence", "class", "er", "state", "mindmap"];
-      let diagramType = (d.diagramType as string) || "flowchart";
-      if (!validTypes.includes(diagramType)) diagramType = "flowchart";
-      return {
-        title: (d.title as string) || "Untitled Diagram",
-        mermaidCode: ((d.mermaidCode as string) || "").replace(/\\n/g, "\n"),
-        description: (d.description as string) || "",
-        diagramType,
-      };
-    }
+    (d: unknown) => ({
+      title: (d as Record<string, string>).title || "Untitled",
+      mermaidCode: ((d as Record<string, string>).mermaidCode || "").replace(/\\n/g, "\n"),
+      description: (d as Record<string, string>).description || "",
+      diagramType: (d as Record<string, string>).diagramType || "flowchart",
+      relatedSection: (d as Record<string, string>).relatedSection,
+    })
   );
+}
 
-  parsed.tradeoffs = (parsed.tradeoffs as unknown[]).map(
-    (item) => {
-      const t = item as Record<string, unknown>;
-      return {
-        decision: (t.decision as string) || "Design decision",
-        pros: Array.isArray(t.pros) ? (t.pros as unknown[]).map((p: unknown) => String(p)) : [],
-        cons: Array.isArray(t.cons) ? (t.cons as unknown[]).map((c: unknown) => String(c)) : [],
-      };
-    }
+function normalizeTechnicalCourseSummary(parsed: Record<string, unknown>): void {
+  normalizeBaseSummary(parsed);
+  parsed.mode = "technical-course";
+  
+  if (!Array.isArray(parsed.lessons)) parsed.lessons = [];
+  if (!Array.isArray(parsed.keyConcepts)) parsed.keyConcepts = [];
+  if (!Array.isArray(parsed.toolsMentioned)) parsed.toolsMentioned = [];
+  
+  parsed.lessons = (parsed.lessons as unknown[]).map(
+    (l: unknown) => ({
+      title: (l as Record<string, string>).title || "Untitled Lesson",
+      startTime: (l as Record<string, string>).startTime || "00:00",
+      endTime: (l as Record<string, string>).endTime || "00:00",
+      concepts: Array.isArray((l as Record<string, unknown>).concepts)
+        ? (l as Record<string, unknown[]>).concepts.map(String)
+        : [],
+      keyPoints: Array.isArray((l as Record<string, unknown>).keyPoints)
+        ? (l as Record<string, unknown[]>).keyPoints.map(String)
+        : [],
+    })
+  );
+}
+
+function normalizeTechnicalCourseProSummary(parsed: Record<string, unknown>): void {
+  normalizeTechnicalCourseSummary(parsed);
+  parsed.mode = "technical-course-pro";
+  
+  if (!Array.isArray(parsed.prerequisites)) parsed.prerequisites = [];
+  if (!Array.isArray(parsed.implementationSteps)) parsed.implementationSteps = [];
+  if (!Array.isArray(parsed.commonPitfalls)) parsed.commonPitfalls = [];
+  if (!Array.isArray(parsed.exerciseSuggestions)) parsed.exerciseSuggestions = [];
+  if (!Array.isArray(parsed.bestPractices)) parsed.bestPractices = [];
+  if (!Array.isArray(parsed.resources)) parsed.resources = [];
+  
+  // Add code examples to lessons if present
+  parsed.lessons = (parsed.lessons as unknown[]).map(
+    (l: unknown) => ({
+      ...(l as Record<string, unknown>),
+      codeExamples: Array.isArray((l as Record<string, unknown>).codeExamples)
+        ? (l as Record<string, unknown[]>).codeExamples
+        : [],
+      pitfalls: Array.isArray((l as Record<string, unknown>).pitfalls)
+        ? (l as Record<string, unknown[]>).pitfalls.map(String)
+        : [],
+      bestPractices: Array.isArray((l as Record<string, unknown>).bestPractices)
+        ? (l as Record<string, unknown[]>).bestPractices.map(String)
+        : [],
+      exerciseSuggestions: Array.isArray((l as Record<string, unknown>).exerciseSuggestions)
+        ? (l as Record<string, unknown[]>).exerciseSuggestions.map(String)
+        : [],
+    })
   );
 }
 
@@ -388,10 +594,28 @@ export async function summarizeTranscript(
   const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   let prompt: string;
-  if (mode === "normal") prompt = NORMAL_PROMPT;
-  else if (mode === "system-design") prompt = SYSTEM_DESIGN_PROMPT;
-  else if (mode === "system-design-pro") prompt = SYSTEM_DESIGN_PRO_PROMPT;
-  else prompt = PRO_PROMPT;
+  switch (mode) {
+    case "normal":
+      prompt = NORMAL_PROMPT;
+      break;
+    case "system-design":
+      prompt = SYSTEM_DESIGN_PROMPT;
+      break;
+    case "pro":
+      prompt = PRO_PROMPT;
+      break;
+    case "system-design-pro":
+      prompt = SYSTEM_DESIGN_PRO_PROMPT;
+      break;
+    case "technical-course":
+      prompt = TECHNICAL_COURSE_PROMPT;
+      break;
+    case "technical-course-pro":
+      prompt = TECHNICAL_COURSE_PRO_PROMPT;
+      break;
+    default:
+      prompt = NORMAL_PROMPT;
+  }
 
   const formattedTranscript = formatTranscript(transcript);
 
@@ -418,28 +642,56 @@ ${formattedTranscript}`;
 
       const parsed = JSON.parse(cleanedText);
 
-      if (mode === "system-design") {
-        if (!parsed.diagrams || !Array.isArray(parsed.diagrams)) {
-          parsed.diagrams = [];
-        }
-        if (!parsed.tradeoffs || !Array.isArray(parsed.tradeoffs)) {
-          parsed.tradeoffs = [];
-        }
-        parsed.diagrams = parsed.diagrams.map(
-          (d: { mermaidCode?: string; title?: string; description?: string }) => ({
-            title: d.title || "Untitled Diagram",
-            mermaidCode: (d.mermaidCode || "").replace(/\\n/g, "\n"),
-            description: d.description || "",
-          })
+      // Check for insufficient content
+      if (parsed.insufficientContent) {
+        throw new Error(
+          `This video doesn't have enough content for ${mode} mode. ${parsed.reason || ""}`
         );
       }
 
-      if (mode === "pro") {
-        normalizeProSummary(parsed);
+      // Check minimum sections
+      const sectionsIncluded = parsed.sectionsIncluded || [];
+      if (sectionsIncluded.length < 3 && mode !== "normal") {
+        throw new Error(
+          `This video doesn't have enough structured content for ${mode} mode. Only ${sectionsIncluded.length} sections detected.`
+        );
       }
 
-      if (mode === "system-design-pro") {
-        normalizeSystemDesignProSummary(parsed);
+      // Normalize based on mode
+      switch (mode) {
+        case "normal":
+          normalizeNormalSummary(parsed);
+          break;
+        case "system-design":
+          normalizeSystemDesignSummary(parsed);
+          break;
+        case "pro":
+          normalizeProSummary(parsed);
+          break;
+        case "system-design-pro":
+          normalizeSystemDesignProSummary(parsed);
+          
+          // Check if it's actually system design
+          if (parsed.isSystemDesign === false) {
+            throw new Error(
+              `SD_PRO_MISMATCH: This video appears to be a ${parsed.videoType || "non-system-design"} video, not a system design video.`
+            );
+          }
+          break;
+        case "technical-course":
+          normalizeTechnicalCourseSummary(parsed);
+          break;
+        case "technical-course-pro":
+          normalizeTechnicalCourseProSummary(parsed);
+          
+          // Check if it's actually a course/tutorial
+          const videoType = parsed.videoType || "";
+          if (videoType !== "course" && videoType !== "tutorial") {
+            throw new Error(
+              `TC_PRO_MISMATCH: This video appears to be a ${videoType || "non-course"} video, not a technical course.`
+            );
+          }
+          break;
       }
 
       return parsed as SummaryResult;
@@ -450,6 +702,11 @@ ${formattedTranscript}`;
         throw new Error(
           "Gemini AI rate limit reached. Free tier allows 15 requests per minute. Please wait 60 seconds and try again."
         );
+      }
+
+      // Don't retry on content mismatch errors
+      if (lastError.message.includes("SD_PRO_MISMATCH") || lastError.message.includes("TC_PRO_MISMATCH")) {
+        throw lastError;
       }
 
       if (attempt < maxRetries) {

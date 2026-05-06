@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-05-07
+
+### Added
+- **Technical Course mode** (Free) — Course summary with lessons, key concepts, and tools
+- **Technical Course Pro mode** (~₹12) — Complete course with code examples, exercises, best practices, prerequisites, implementation steps, common pitfalls, and resources
+- **Dynamic sections for all modes** — Only sections present in the video appear in the PDF; no forced/empty sections
+- **Yellow marker highlighting** — Important keywords marked with `{critical}term{/critical}` get yellow background highlight in PDF
+- **Cross-references** — AI generates `[REF:section-title]` markers rendered as "(See Section Title)" in PDF
+- **Capacity estimates** (System Design Pro) — Back-of-envelope calculations with realistic numbers and disclaimer
+- **Data model** (System Design Pro) — Entities, attributes, and relationships
+- **API design** (System Design Pro) — OpenAPI-style endpoint descriptions (conditional, only if video discusses APIs)
+- **Failure scenarios** (System Design Pro) — Failure modes with impact and mitigation strategies
+- **NFRs** (System Design Pro) — Non-functional requirements categorized by scalability, reliability, performance, security
+- **Code examples** (Technical Course Pro) — Extracted code snippets with language, explanation, and timestamp
+- **Exercise suggestions** (Technical Course Pro) — AI-generated practice exercises per lesson
+- **Mode mismatch blocking** — System Design Pro blocks non-system-design videos; Technical Course Pro blocks non-course videos; shows suggestion to switch modes
+- **Minimum content validation** — Videos with fewer than 3 applicable sections show "Not enough content" error
+- **Section confidence threshold** — AI assesses >70% confidence before including a section
+- **Soft page limits** — Recommended pages per mode with +3 overflow allowed; footer warning on extended PDFs
+- **Logical section ordering** — Sections ordered logically (not chronologically) except Technical Course lessons which follow video order
+- **Inline analysis** — Diagrams, trade-offs, and API design placed inline with relevant sections in System Design Pro
+- **Diagram-section linking** — Diagrams have `relatedSection` field and are rendered alongside their section
+- **Better transcript error message** — Clear explanation when video lacks captions, with tip about YouTube CC button
+
+### Changed
+- **Removed `gist` field** from all modes (was redundant with Overview)
+- **No transcript fallback** — Sections show "[Section content not available]" instead of raw transcript when summary is missing
+- **Fixed pricing discrepancy** — Removed hardcoded ₹5 in pricing.ts; now dynamically calculates from USD × exchange rate (~₹8 for $0.10 modes, ~₹12 for $0.15)
+- **Technical Course Pro pricing** — $0.15/USD (~₹12) reflecting code extraction complexity
+- **Removed redundant timestamps** from System Design Pro and Pro modes (already shown in section headers and TOC)
+- **AI prompts completely rewritten** — All 6 prompts now support dynamic section analysis, confidence thresholds, and `{critical}` markers
+- **PDF generator rewritten** — ~1600 lines with dynamic section rendering, highlighting, cross-references, and all 6 modes
+- **ModeSelector redesigned** — 3-column layout with Normal, System Design (Basic/Pro), Technical Course (Basic/Pro), and full-width Pro mode
+- **PaymentModal** — Supports all 3 paid modes (Pro, System Design Pro, Technical Course Pro)
+- **PaymentProvider** — Updated `PaidMode` type to include `"technical-course-pro"`
+- **Type system overhauled** — `BaseSummary` with `sectionsIncluded`, `sectionsSkipped`, `sectionMetadata`; mode-specific interfaces with `mode` discriminator field; type guards updated
+- **LLM failover** — All providers now support Technical Course and Technical Course Pro modes
+- **Content flattening** — `flattenContent()` in gemini.ts extracts nested `content` object to top level for type compatibility
+
+### Fixed
+- Pricing mismatch between displayed ₹5 and checkout ₹8 — now dynamically calculated from exchange rate
+- Empty sections appearing in PDF — dynamic sections skip silently when no content
+- Raw transcript appearing in Pro mode sections — replaced with placeholder text
+
 ## [1.2.0] - 2026-05-04
 
 ### Added

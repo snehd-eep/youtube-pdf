@@ -67,7 +67,7 @@ function HomeContent() {
     }
 
     if (isPaidMode(mode)) {
-      const alreadyPaid = payment.isPaid(mode as "system-design-pro" | "pro", videoId);
+      const alreadyPaid = payment.isPaid(mode as "pro" | "system-design-pro" | "technical-course-pro", videoId);
       setPaymentVerified(alreadyPaid);
     } else {
       setPaymentVerified(true);
@@ -129,7 +129,7 @@ function HomeContent() {
           mode,
           videoId: vidId,
           title,
-          ...(mode === "pro" || mode === "system-design-pro" ? { transcript: extractedTranscript } : {}),
+          ...(mode === "pro" || mode === "system-design-pro" || mode === "technical-course-pro" ? { transcript: extractedTranscript } : {}),
         }),
       });
 
@@ -197,14 +197,14 @@ function HomeContent() {
     const videoId = extractVideoId(url);
     if (!videoId) return;
 
-    if (payment.isPaid(mode as "system-design-pro" | "pro", videoId)) {
+    if (payment.isPaid(mode as "pro" | "system-design-pro" | "technical-course-pro", videoId)) {
       setPaymentVerified(true);
       handleDownload();
       return;
     }
 
     payment.openPayment(
-      mode as "system-design-pro" | "pro",
+      mode as "pro" | "system-design-pro" | "technical-course-pro",
       videoId,
       summary.title
     );
@@ -263,9 +263,14 @@ function HomeContent() {
 
   const isNoCaptionsError = error.toLowerCase().includes("could not extract") ||
     error.toLowerCase().includes("captions disabled") ||
-    error.toLowerCase().includes("no transcripts");
+    error.toLowerCase().includes("no transcripts") ||
+    error.toLowerCase().includes("transcript not available");
 
   const isVideoTooLong = error.toLowerCase().includes("too long") || error.toLowerCase().includes("too short");
+
+  const isModeMismatch = error.includes("SD_PRO_MISMATCH") || error.includes("TC_PRO_MISMATCH");
+
+  const isInsufficientContent = error.toLowerCase().includes("insufficient content") || error.toLowerCase().includes("doesn't have enough");
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -429,7 +434,7 @@ function HomeContent() {
                       {url}
                     </p>
                     <p className="text-xs text-indigo-600 dark:text-indigo-400">
-                      Mode: {mode === "system-design-pro" ? "System Design Pro" : mode === "system-design" ? "System Design" : mode === "pro" ? "Pro" : "Normal"}
+                      Mode: {mode === "system-design-pro" ? "System Design Pro" : mode === "system-design" ? "System Design" : mode === "pro" ? "Pro" : mode === "technical-course-pro" ? "Technical Course Pro" : mode === "technical-course" ? "Technical Course" : "Normal"}
                     </p>
                   </div>
                 </div>
@@ -460,7 +465,7 @@ function HomeContent() {
               </div>
 
               <div className={`p-6 rounded-xl border ${
-                isNoCaptionsError
+                isNoCaptionsError || isModeMismatch || isInsufficientContent
                   ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
                   : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
                     ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
@@ -472,6 +477,10 @@ function HomeContent() {
                   {isNoCaptionsError ? (
                     <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    </svg>
+                  ) : isModeMismatch ? (
+                    <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.65-.166-.822M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.381 5.387a2.25 2.25 0 00-.527.898l-.646 2.577a1.375 1.375 0 01-1.082.982l-2.577.646a1.375 1.375 0 01-1.082-.982l-.646-2.577a2.25 2.25 0 00-.527-.898L3.822 7.409a2.25 2.25 0 01-.659-1.591V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
                     </svg>
                   ) : (error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")) ? (
                     <svg className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -488,7 +497,7 @@ function HomeContent() {
                   )}
                   <div>
                     <h3 className={`font-semibold ${
-                      isNoCaptionsError
+                      isNoCaptionsError || isModeMismatch || isInsufficientContent
                         ? "text-amber-800 dark:text-amber-300"
                         : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
                           ? "text-amber-800 dark:text-amber-300"
@@ -498,11 +507,15 @@ function HomeContent() {
                     }`}>
                       {isNoCaptionsError
                         ? "No captions available"
-                        : isVideoTooLong
-                          ? "Video too long"
-                          : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
-                            ? "Rate limit reached"
-                            : "Something went wrong"
+                        : isModeMismatch
+                          ? "Mode mismatch"
+                          : isInsufficientContent
+                            ? "Not enough content"
+                            : isVideoTooLong
+                              ? "Video too long"
+                              : error.toLowerCase().includes("rate limit") || error.toLowerCase().includes("429")
+                                ? "Rate limit reached"
+                                : "Something went wrong"
                       }
                     </h3>
                     <p className={`text-sm mt-1 ${
@@ -559,8 +572,8 @@ function HomeContent() {
               <PdfPreview
                 summary={{
                   title: summary.title,
-                  gist: summary.gist,
-                  keyTakeaways: summary.keyTakeaways,
+                  overview: (summary as unknown as Record<string, unknown>).overview as string | undefined,
+                  keyTakeaways: ((summary as unknown as Record<string, unknown>).keyTakeaways as string[] | undefined) || [],
                 }}
                 pdfBuffer={pdfBuffer}
                 mode={mode}
