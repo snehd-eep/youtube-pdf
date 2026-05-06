@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractTranscript } from "@/lib/youtube";
-import { setCachedTranscript } from "@/lib/kv";
+import { extractTranscript, extractVideoId } from "@/lib/youtube";
+import { getCachedTranscript, setCachedTranscript } from "@/lib/kv";
 import { ExtractResponse, TranscriptEntry } from "@/lib/types";
 
 const MAX_TRANSCRIPT_CHARS = 240000;
@@ -17,14 +17,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const videoId = extractVideoId(url);
+
+    // Check cache first to avoid re-extracting
+    try {
+      const cached = await getCachedTranscript(videoId);
+      if (cached && Array.isArray(cached.transcript) && cached.transcript.length > 0) {
+        console.log(`[Extract] Cache hit for ${videoId}`);
+        return NextResponse.json({
+          videoId: (cached.videoId as string) || videoId,
+          title: (cached.title as string) || `Video ${videoId}`,
+          transcript: cached.transcript as TranscriptEntry[],
+        } satisfies ExtractResponse);
+      }
+    } catch (e) {
+      console.warn("Cache read failed, continuing with extraction:", e);
+    }
+
     const result = await extractTranscript(url);
 
     const totalChars = result.transcript.reduce((sum, e) => sum + (e.text?.length || 0), 0);
     if (totalChars > MAX_TRANSCRIPT_CHARS) {
-      const estimatedMinutes = Math.round(totalChars / 900);
-      const maxMinutes = Math.round(MAX_TRANSCRIPT_CHARS / 900);
       return NextResponse.json(
-        { error: `This video is too long (~${Math.round(estimatedMinutes / 60 * 10) / 10} hours). We support videos up to ~4 hours. Please try a shorter video.` },
+        { error: `This video is too long (~${Math.round(Math.round(totalChars / 900) / 60 * 10) / 10} hours). We support videos up to ~4 hours. Please try a shorter video.` },
         { status: 413 }
       );
     }

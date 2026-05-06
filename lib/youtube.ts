@@ -381,64 +381,154 @@ async function fetchCaptionXml(track: CaptionTrack): Promise<string> {
     url += (url.includes("?") ? "&" : "?") + "fmt=srv3";
   }
 
-  // 1. Direct fetch (works locally)
-  try {
-    const response = await fetch(url, {
-      headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (response.ok) {
-      const text = await response.text();
-      if (text.length > 100) {
-        console.log("Caption: direct fetch succeeded");
-        return text;
-      }
-    }
-  } catch {}
+  const onServerless = isServerless();
 
-  // 2. Proxy fetch via Cloudflare Worker
-  try {
-    const result = await proxyFetch(url, {
-      headers: { Accept: "text/xml,*/*" },
-    });
-    if (result.ok && result.body.length > 100 && result.body.includes("<")) {
-      console.log("Caption: proxy fetch succeeded");
-      return result.body;
-    }
-  } catch {}
+  // On serverless, prefer proxy first (direct always fails on Vercel IPs)
+  const fetchOrder: Array<() => Promise<string | null>> = onServerless
+    ? [
+        // Proxy first on serverless
+        async () => {
+          try {
+            const result = await proxyFetch(url, { headers: { Accept: "text/xml,*/*" } });
+            if (result.ok && result.body.length > 100 && result.body.includes("<")) {
+              console.log("Caption: proxy fetch succeeded");
+              return result.body;
+            }
+          } catch {}
+          return null;
+        },
+        // Direct as fallback
+        async () => {
+          try {
+            const response = await fetch(url, {
+              headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
+              signal: AbortSignal.timeout(5000),
+            });
+            if (response.ok) {
+              const text = await response.text();
+              if (text.length > 100) {
+                console.log("Caption: direct fetch succeeded");
+                return text;
+              }
+            }
+          } catch {}
+          return null;
+        },
+      ]
+    : [
+        // Direct first on local
+        async () => {
+          try {
+            const response = await fetch(url, {
+              headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (response.ok) {
+              const text = await response.text();
+              if (text.length > 100) {
+                console.log("Caption: direct fetch succeeded");
+                return text;
+              }
+            }
+          } catch {}
+          return null;
+        },
+        async () => {
+          try {
+            const result = await proxyFetch(url, { headers: { Accept: "text/xml,*/*" } });
+            if (result.ok && result.body.length > 100 && result.body.includes("<")) {
+              console.log("Caption: proxy fetch succeeded");
+              return result.body;
+            }
+          } catch {}
+          return null;
+        },
+      ];
 
-  // 3. If not English, try translating with &tlang=en
+  for (const fn of fetchOrder) {
+    const result = await fn();
+    if (result) return result;
+  }
+
+  // If not English, try translating with &tlang=en
   if (track.languageCode !== "en") {
     const separator = url.includes("?") ? "&" : "?";
     const translatedUrl = url + separator + "tlang=en";
     console.log(`Caption: trying tlang=en translation for ${track.languageCode}`);
 
-    try {
-      const response = await fetch(translatedUrl, {
-        headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (response.ok) {
-        const text = await response.text();
-        if (text.length > 100 && (text.includes("<p") || text.includes("<text"))) {
-          console.log(`Caption: direct tlang=en translation succeeded for ${track.languageCode}`);
-          return text;
-        }
-      }
-    } catch {}
+    const translationOrder: Array<() => Promise<string | null>> = onServerless
+      ? [
+          async () => {
+            try {
+              const result = await proxyFetch(translatedUrl, { headers: { Accept: "text/xml,*/*" } });
+              if (result.ok && result.body.length > 100 && (result.body.includes("<p") || result.body.includes("<text"))) {
+                console.log(`Caption: proxy tlang=en translation succeeded for ${track.languageCode}`);
+                return result.body;
+              }
+            } catch {}
+            return null;
+          },
+          async () => {
+            try {
+              const response = await fetch(translatedUrl, {
+                headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
+                signal: AbortSignal.timeout(5000),
+              });
+              if (response.ok) {
+                const text = await response.text();
+                if (text.length > 100 && (text.includes("<p") || text.includes("<text"))) {
+                  console.log(`Caption: direct tlang=en translation succeeded for ${track.languageCode}`);
+                  return text;
+                }
+              }
+            } catch {}
+            return null;
+          },
+        ]
+      : [
+          async () => {
+            try {
+              const response = await fetch(translatedUrl, {
+                headers: { "User-Agent": BROWSER_UA, Accept: "text/xml,*/*" },
+                signal: AbortSignal.timeout(8000),
+              });
+              if (response.ok) {
+                const text = await response.text();
+                if (text.length > 100 && (text.includes("<p") || text.includes("<text"))) {
+                  console.log(`Caption: direct tlang=en translation succeeded for ${track.languageCode}`);
+                  return text;
+                }
+              }
+            } catch {}
+            return null;
+          },
+          async () => {
+            try {
+              const result = await proxyFetch(translatedUrl, { headers: { Accept: "text/xml,*/*" } });
+              if (result.ok && result.body.length > 100 && (result.body.includes("<p") || result.body.includes("<text"))) {
+                console.log(`Caption: proxy tlang=en translation succeeded for ${track.languageCode}`);
+                return result.body;
+              }
+            } catch {}
+            return null;
+          },
+        ];
 
-    try {
-      const result = await proxyFetch(translatedUrl, {
-        headers: { Accept: "text/xml,*/*" },
-      });
-      if (result.ok && result.body.length > 100 && (result.body.includes("<p") || result.body.includes("<text"))) {
-        console.log(`Caption: proxy tlang=en translation succeeded for ${track.languageCode}`);
-        return result.body;
-      }
-    } catch {}
+    for (const fn of translationOrder) {
+      const result = await fn();
+      if (result) return result;
+    }
   }
 
   throw new Error("Failed to fetch caption XML");
+}
+
+function isServerless(): boolean {
+  return !!(
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.NETLIFY
+  );
 }
 
 export async function extractTranscript(
@@ -449,30 +539,60 @@ export async function extractTranscript(
   type StrategyResult = { tracks: CaptionTrack[]; title: string } | null;
   type StrategyFn = () => Promise<StrategyResult>;
 
-  // Strategy order: direct (fast, works locally) then proxy (works on Vercel)
-  const trackStrategies: StrategyFn[] = [
-    () => tryInnerTubeDirect(videoId),
-    () => tryWebPageDirect(videoId),
-    () => tryInnerTubeViaProxy(videoId),
-    () => tryWebPageViaProxy(videoId),
-  ];
+  // On serverless (Vercel), direct strategies always fail because YouTube
+  // blocks serverless IPs. Skip them to avoid wasting 16+ seconds on timeouts.
+  const trackStrategies: StrategyFn[] = isServerless()
+    ? [
+        () => tryInnerTubeViaProxy(videoId),
+        () => tryWebPageViaProxy(videoId),
+      ]
+    : [
+        () => tryInnerTubeDirect(videoId),
+        () => tryWebPageDirect(videoId),
+        () => tryInnerTubeViaProxy(videoId),
+        () => tryWebPageViaProxy(videoId),
+      ];
+
+  const errors: string[] = [];
 
   for (const strategy of trackStrategies) {
     const result = await strategy();
     if (!result || result.tracks.length === 0) continue;
 
-    const selected = selectCaptionTrack(result.tracks);
-    const lang = selected.languageCode || "en";
+    // Deduplicate tracks by baseUrl (before query params) and prioritize
+    const preferred = selectCaptionTrack(result.tracks);
+    const seen = new Set<string>();
+    const uniqueTracks: CaptionTrack[] = [];
 
-    try {
-      const xml = await fetchCaptionXml(selected);
-      const transcript = parseXmlTranscript(xml, lang);
+    // Add preferred track first
+    const preferredKey = preferred.baseUrl.split("&")[0];
+    seen.add(preferredKey);
+    uniqueTracks.push(preferred);
 
-      if (transcript && transcript.length > 0) {
-        return { videoId, title: result.title, transcript };
+    // Add remaining unique tracks
+    for (const t of result.tracks) {
+      const key = t.baseUrl.split("&")[0];
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueTracks.push(t);
       }
-    } catch (e) {
-      console.log(`Caption fetch failed: ${(e as Error).message}`);
+    }
+
+    for (const track of uniqueTracks) {
+      const lang = track.languageCode || "en";
+
+      try {
+        const xml = await fetchCaptionXml(track);
+        const transcript = parseXmlTranscript(xml, lang);
+
+        if (transcript && transcript.length > 0) {
+          return { videoId, title: result.title, transcript };
+        }
+      } catch (e) {
+        const msg = (e as Error).message;
+        console.log(`Caption fetch failed for ${lang}: ${msg}`);
+        errors.push(`${lang}: ${msg}`);
+      }
     }
   }
 
