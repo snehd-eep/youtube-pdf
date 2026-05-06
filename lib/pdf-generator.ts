@@ -59,6 +59,17 @@ function cpb(doc: jsPDF, y: number, needed: number): number {
   return y;
 }
 
+function wrapText(doc: jsPDF, text: string, x: number, y: number, maxWidth: number, lineH?: number): number {
+  const lh = lineH || LH;
+  const lines = doc.splitTextToSize(text, maxWidth);
+  for (const line of lines) {
+    y = cpb(doc, y, lh);
+    doc.text(line, x, y);
+    y += lh;
+  }
+  return y;
+}
+
 function sep(doc: jsPDF, y: number): number {
   y = cpb(doc, y, 12);
   doc.setDrawColor(220, 220, 220);
@@ -240,7 +251,10 @@ function addTableOfContents(doc: jsPDF, sections: Array<{title: string; time?: s
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(51, 51, 51);
-    doc.text(`${i + 1}. ${sections[i].title}`, MG + 2, y);
+    const titleText = `${i + 1}. ${sections[i].title}`;
+    const titleMaxW = sections[i].time ? CW - 30 : CW - 4;
+    const titleLines = doc.splitTextToSize(titleText, titleMaxW);
+    doc.text(titleLines[0], MG + 2, y);
     
     if (sections[i].time) {
       doc.setFontSize(8);
@@ -249,6 +263,14 @@ function addTableOfContents(doc: jsPDF, sections: Array<{title: string; time?: s
     }
     
     y += LH + 2;
+    for (let j = 1; j < titleLines.length; j++) {
+      y = cpb(doc, y, LH);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 51, 51);
+      doc.text(titleLines[j], MG + 2, y);
+      y += LH;
+    }
   }
   
   y += PGAP;
@@ -271,8 +293,14 @@ function addTimestamps(doc: jsPDF, timestamps: TimestampEntry[], y: number): num
     
     doc.setFont("helvetica", "bold");
     doc.setTextColor(26, 26, 46);
-    doc.text(ts.topic, MG + 18, y);
+    const topicLines = doc.splitTextToSize(ts.topic, CW - 18);
+    doc.text(topicLines[0], MG + 18, y);
     y += LHSM + 0.5;
+    for (let j = 1; j < topicLines.length; j++) {
+      y = cpb(doc, y, LHSM);
+      doc.text(topicLines[j], MG + 18, y);
+      y += LHSM;
+    }
     
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
@@ -335,8 +363,11 @@ function addDefinitions(doc: jsPDF, definitions: Definition[], y: number): numbe
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-    doc.text(def.term, MG + 2, y);
-    y += LH;
+    const termLines = doc.splitTextToSize(def.term, CW - 4);
+    for (const line of termLines) {
+      doc.text(line, MG + 2, y);
+      y += LH;
+    }
     
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
@@ -353,8 +384,7 @@ function addDefinitions(doc: jsPDF, definitions: Definition[], y: number): numbe
       doc.setFontSize(8);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(150, 150, 150);
-      doc.text(`Introduced in: ${def.introducedIn}`, MG + 6, y);
-      y += LH;
+      y = wrapText(doc, `Introduced in: ${def.introducedIn}`, MG + 6, y, CW - 10, LHSM);
     }
     
     y += 4;
@@ -378,7 +408,10 @@ function addCallouts(doc: jsPDF, callouts: Callout[], y: number): number {
     const style = STYLES[callout.type] || STYLES.insight;
     
     const contentLines = doc.splitTextToSize(callout.content, CW - 16);
-    const titleH = callout.title ? LH + 2 : 0;
+    const titleTextLines = callout.title
+      ? doc.splitTextToSize(`${style.label}: ${callout.title}`, CW - 16)
+      : [style.label];
+    const titleH = titleTextLines.length * LH + 2;
     const contentH = contentLines.length * LH;
     const boxHeight = titleH + contentH + 12;
     
@@ -395,8 +428,10 @@ function addCallouts(doc: jsPDF, callouts: Callout[], y: number): number {
       doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(style.text[0], style.text[1], style.text[2]);
-      doc.text(`${style.label}: ${callout.title}`, MG + 6, lineY);
-      lineY += titleH;
+      for (const tl of titleTextLines) {
+        doc.text(tl, MG + 6, lineY);
+        lineY += LH;
+      }
     } else {
       doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
@@ -479,8 +514,12 @@ function addCapacityEstimates(doc: jsPDF, estimates: CapacityEstimate[], y: numb
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(26, 26, 46);
-    doc.text(est.metric, MG + 2, y);
-    y += LH;
+    const metricLines = doc.splitTextToSize(est.metric, CW - 4);
+    for (const line of metricLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 2, y);
+      y += LH;
+    }
     
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
@@ -514,15 +553,24 @@ function addDataModel(doc: jsPDF, entities: DataEntity[], y: number): number {
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 33, 62);
-    doc.text(entity.entity, MG + 2, y);
-    y += LH + 1;
+    const entityLines = doc.splitTextToSize(entity.entity, CW - 4);
+    for (const line of entityLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 2, y);
+      y += LH;
+    }
+    y += 1;
     
     if (entity.attributes && entity.attributes.length > 0) {
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(80, 80, 80);
-      doc.text(`Attributes: ${entity.attributes.join(", ")}`, MG + 4, y);
-      y += LH;
+      const attrLines = doc.splitTextToSize(`Attributes: ${entity.attributes.join(", ")}`, CW - 8);
+      for (const line of attrLines) {
+        y = cpb(doc, y, LH);
+        doc.text(line, MG + 4, y);
+        y += LH;
+      }
     }
     
     if (entity.relationships && entity.relationships.length > 0) {
@@ -530,9 +578,12 @@ function addDataModel(doc: jsPDF, entities: DataEntity[], y: number): number {
       doc.setFont("helvetica", "normal");
       doc.setTextColor(100, 100, 100);
       for (const rel of entity.relationships) {
-        y = cpb(doc, y, LH);
-        doc.text(`• ${rel}`, MG + 4, y);
-        y += LH;
+        const relLines = doc.splitTextToSize(`• ${rel}`, CW - 8);
+        for (const line of relLines) {
+          y = cpb(doc, y, LH);
+          doc.text(line, MG + 4, y);
+          y += LH;
+        }
       }
     }
     
@@ -563,8 +614,18 @@ function addApiDesign(doc: jsPDF, endpoints: ApiEndpoint[], y: number): number {
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(26, 26, 46);
-    doc.text(ep.endpoint, MG + 24, y);
-    y += LH + 2;
+    const epLines = doc.splitTextToSize(ep.endpoint, CW - 24);
+    doc.text(epLines[0], MG + 24, y);
+    y += LH;
+    for (let j = 1; j < epLines.length; j++) {
+      y = cpb(doc, y, LH);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(26, 26, 46);
+      doc.text(epLines[j], MG + 2, y);
+      y += LH;
+    }
+    y += 2;
     
     // Description
     doc.setFontSize(9);
@@ -583,16 +644,24 @@ function addApiDesign(doc: jsPDF, endpoints: ApiEndpoint[], y: number): number {
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(100, 100, 100);
-      doc.text(`Request: ${ep.requestParams.join(", ")}`, MG + 2, y);
-      y += LH;
+      const reqLines = doc.splitTextToSize(`Request: ${ep.requestParams.join(", ")}`, CW - 8);
+      for (const line of reqLines) {
+        y = cpb(doc, y, LH);
+        doc.text(line, MG + 2, y);
+        y += LH;
+      }
     }
     
     if (ep.responseParams && ep.responseParams.length > 0) {
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(100, 100, 100);
-      doc.text(`Response: ${ep.responseParams.join(", ")}`, MG + 2, y);
-      y += LH;
+      const resLines = doc.splitTextToSize(`Response: ${ep.responseParams.join(", ")}`, CW - 8);
+      for (const line of resLines) {
+        y = cpb(doc, y, LH);
+        doc.text(line, MG + 2, y);
+        y += LH;
+      }
     }
     
     y += 4;
@@ -697,8 +766,13 @@ function addFailureScenarios(doc: jsPDF, scenarios: FailureScenario[], y: number
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(180, 83, 9);
-    doc.text("⚠ " + scenario.scenario, MG + 2, y);
-    y += LH + 1;
+    const scenarioLines = doc.splitTextToSize("⚠ " + scenario.scenario, CW - 4);
+    for (const line of scenarioLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 2, y);
+      y += LH;
+    }
+    y += 1;
     
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
@@ -762,9 +836,12 @@ function addNFRs(doc: jsPDF, nfrs: NFR[], y: number): number {
     doc.setFont("helvetica", "normal");
     doc.setTextColor(80, 80, 80);
     for (const req of nfr.requirements) {
-      y = cpb(doc, y, LH);
-      doc.text(`• ${req}`, MG + 4, y);
-      y += LH;
+      const reqLines = doc.splitTextToSize(`• ${req}`, CW - 10);
+      for (const line of reqLines) {
+        y = cpb(doc, y, LH);
+        doc.text(line, MG + 4, y);
+        y += LH;
+      }
     }
     
     y += 4;
@@ -788,16 +865,22 @@ async function addDiagrams(doc: jsPDF, diagrams: MermaidDiagram[], y: number): P
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 33, 62);
-    doc.text(`${i + 1}. ${diagram.title}`, MG, y);
+    const titleLines = doc.splitTextToSize(`${i + 1}. ${diagram.title}`, CW);
+    for (const line of titleLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG, y);
+      y += LH;
+    }
     
     if (diagram.relatedSection) {
       doc.setFontSize(8);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(120, 120, 120);
-      doc.text(`(Related to: ${diagram.relatedSection})`, MG + doc.getTextWidth(`${i + 1}. ${diagram.title}`) + 5, y);
+      y = wrapText(doc, `(Related to: ${diagram.relatedSection})`, MG + 2, y, CW - 4, LHSM);
+      y += LHSM;
     }
     
-    y += 6;
+    y += 2;
     
     const imageData = imageMap.get(diagram.title);
     if (imageData) {
@@ -868,11 +951,20 @@ function addProSections(doc: jsPDF, sections: ProSection[], y: number): number {
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 33, 62);
-    doc.text(section.heading, MG, y);
+    const headingLines = doc.splitTextToSize(section.heading, CW - 40);
+    doc.text(headingLines[0], MG, y);
     doc.setFontSize(8);
     doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
     doc.text(`${section.startTime} - ${section.endTime}`, PW - MG, y, { align: "right" });
     y += LH + 2;
+    for (let hi = 1; hi < headingLines.length; hi++) {
+      y = cpb(doc, y, LH);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(22, 33, 62);
+      doc.text(headingLines[hi], MG, y);
+      y += LH;
+    }
     
     if (section.sectionSummary && section.sectionSummary.trim().length > 0) {
       doc.setFontSize(9);
@@ -1152,8 +1244,12 @@ function addKeyConcepts(doc: jsPDF, concepts: KeyConcept[], y: number): number {
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
-    doc.text(concept.term, MG + 2, y);
-    y += LH;
+    const termLines = doc.splitTextToSize(concept.term, CW - 4);
+    for (const line of termLines) {
+      y = cpb(doc, y, LH);
+      doc.text(line, MG + 2, y);
+      y += LH;
+    }
     
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
@@ -1169,8 +1265,8 @@ function addKeyConcepts(doc: jsPDF, concepts: KeyConcept[], y: number): number {
     doc.setFontSize(8);
     doc.setFont("helvetica", "italic");
     doc.setTextColor(150, 150, 150);
-    doc.text(`Introduced in: ${concept.introducedIn}`, MG + 4, y);
-    y += LH + 4;
+    y = wrapText(doc, `Introduced in: ${concept.introducedIn}`, MG + 4, y, CW - 8, LHSM);
+    y += 4;
   }
   
   return sep(doc, y);
@@ -1181,9 +1277,14 @@ function addPrerequisites(doc: jsPDF, prerequisites: string[], y: number): numbe
   
   y = secHead(doc, "PREREQUISITES", y, GOLD);
   
+  const allPrereqLines: string[] = [];
+  for (const prereq of prerequisites) {
+    allPrereqLines.push(...doc.splitTextToSize(`• ${prereq}`, CW - 12));
+  }
+  const boxHeight = allPrereqLines.length * LH + 12;
+  
   doc.setFillColor(254, 249, 231);
   doc.setDrawColor(217, 119, 6);
-  const boxHeight = prerequisites.length * LH + 12;
   y = cpb(doc, y, boxHeight);
   doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
   
@@ -1195,9 +1296,9 @@ function addPrerequisites(doc: jsPDF, prerequisites: string[], y: number): numbe
   
   doc.setFont("helvetica", "normal");
   doc.setTextColor(80, 80, 80);
-  for (const prereq of prerequisites) {
+  for (const line of allPrereqLines) {
     y = cpb(doc, y, LH);
-    doc.text(`• ${prereq}`, MG + 5, y);
+    doc.text(line, MG + 5, y);
     y += LH;
   }
   
@@ -1310,11 +1411,13 @@ function addExerciseSuggestions(doc: jsPDF, exercises: string[], y: number): num
   y = secHead(doc, "EXERCISE SUGGESTIONS", y, GOLD);
   
   for (let i = 0; i < exercises.length; i++) {
-    y = cpb(doc, y, LH + 4);
+    const exLines = doc.splitTextToSize(exercises[i], CW - 14);
+    const boxH = exLines.length * LH + 4;
+    y = cpb(doc, y, boxH);
     
     doc.setFillColor(255, 251, 235);
     doc.setDrawColor(217, 119, 6);
-    doc.roundedRect(MG, y - 3, CW, LH + 4, 2, 2, "FD");
+    doc.roundedRect(MG, y - 3, CW, boxH, 2, 2, "FD");
     
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
@@ -1323,13 +1426,12 @@ function addExerciseSuggestions(doc: jsPDF, exercises: string[], y: number): num
     
     doc.setFont("helvetica", "normal");
     doc.setTextColor(80, 80, 80);
-    const exLines = doc.splitTextToSize(exercises[i], CW - 14);
+    let lineY = y + 1;
     for (const line of exLines) {
-      y = cpb(doc, y, LH);
-      doc.text(line, MG + 12, y);
-      y += LH;
+      doc.text(line, MG + 12, lineY);
+      lineY += LH;
     }
-    y += 3;
+    y += boxH + 3;
   }
   
   return sep(doc, y);
@@ -1340,18 +1442,23 @@ function addBestPractices(doc: jsPDF, practices: string[], y: number): number {
   
   y = secHead(doc, "BEST PRACTICES", y, GOLD);
   
+  const allBpLines: string[] = [];
+  for (const practice of practices) {
+    allBpLines.push(...doc.splitTextToSize(`✓ ${practice}`, CW - 12));
+  }
+  const boxHeight = allBpLines.length * LH + 10;
+  
   doc.setFillColor(236, 253, 245);
   doc.setDrawColor(22, 163, 74);
-  const boxHeight = practices.length * LH + 10;
   y = cpb(doc, y, boxHeight);
   doc.roundedRect(MG, y - 4, CW, boxHeight, 3, 3, "FD");
   
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(80, 80, 80);
-  for (const practice of practices) {
+  for (const line of allBpLines) {
     y = cpb(doc, y, LH);
-    doc.text(`✓ ${practice}`, MG + 5, y);
+    doc.text(line, MG + 5, y);
     y += LH;
   }
   
@@ -1368,9 +1475,14 @@ function addResources(doc: jsPDF, resources: string[], y: number): number {
   doc.setTextColor(59, 130, 246);
   
   for (const resource of resources) {
-    y = cpb(doc, y, LH + 2);
-    doc.textWithLink(resource, MG, y, { url: resource });
-    y += LH + 2;
+    const resLines = doc.splitTextToSize(resource, CW);
+    for (const line of resLines) {
+      y = cpb(doc, y, LH);
+      doc.setTextColor(59, 130, 246);
+      doc.textWithLink(line, MG, y, { url: resource });
+      y += LH;
+    }
+    y += 2;
   }
   
   return sep(doc, y);
@@ -1513,11 +1625,20 @@ export async function generatePdf(
         doc.setFontSize(11);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(22, 33, 62);
-        doc.text(section.heading, MG, y);
+        const headingLines = doc.splitTextToSize(section.heading, CW - 40);
+        doc.text(headingLines[0], MG, y);
         doc.setFontSize(8);
         doc.setTextColor(GOLD.r, GOLD.g, GOLD.b);
         doc.text(`${section.startTime} - ${section.endTime}`, PW - MG, y, { align: "right" });
         y += LH + 2;
+        for (let hi = 1; hi < headingLines.length; hi++) {
+          y = cpb(doc, y, LH);
+          doc.setFontSize(11);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(22, 33, 62);
+          doc.text(headingLines[hi], MG, y);
+          y += LH;
+        }
         
         if (section.sectionSummary) {
           doc.setFontSize(9);
@@ -1530,9 +1651,12 @@ export async function generatePdf(
         
         if (section.keyPoints) {
           for (const point of section.keyPoints) {
-            y = cpb(doc, y, LH);
-            doc.text(`• ${point}`, MG + 4, y);
-            y += LH;
+            const kpLines = doc.splitTextToSize(`• ${point}`, CW - 10);
+            for (const line of kpLines) {
+              y = cpb(doc, y, LH);
+              doc.text(line, MG + 4, y);
+              y += LH;
+            }
           }
         }
         y += 4;

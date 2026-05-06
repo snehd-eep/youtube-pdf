@@ -44,6 +44,7 @@ interface RazorpayResponse {
 
 interface RazorpayInstance {
   open: () => void;
+  on: (event: string, callback: (response: unknown) => void) => void;
 }
 
 function loadRazorpayScript(): Promise<boolean> {
@@ -157,6 +158,12 @@ export function PaymentModal({ mode, videoId, videoTitle, onSuccess, onCancel }:
         };
 
         const rzp = new window.Razorpay(options);
+        rzp.on("payment.failed", (response: unknown) => {
+          const err = (response as { error?: { code?: string; description?: string } })?.error;
+          console.error("Razorpay payment failed:", err?.code, err?.description);
+          setErrorMsg(`Payment failed: ${err?.description || "Unknown error"}. Please try again.`);
+          setState("error");
+        });
         rzp.open();
       } catch (err) {
         if (!cancelled) {
@@ -238,10 +245,13 @@ export function PaymentModal({ mode, videoId, videoTitle, onSuccess, onCancel }:
                 onClick={onCancel}
                 className="px-4 py-2 rounded-lg text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
               >
-                Cancel
+                Close
               </button>
               <button
-                onClick={() => window.location.reload()}
+                onClick={() => {
+                  setErrorMsg("");
+                  setState("creating_order");
+                }}
                 className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium transition-colors"
               >
                 Try Again
