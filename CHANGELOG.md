@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3] - 2026-05-07
+
+### Fixed
+- **PDF text overflow across all modes** — Long text from AI summaries no longer overflows the right margin; all dynamic text now wraps using `splitTextToSize()`. Affected: TOC titles, timestamps, definitions, callout titles, capacity estimates, data model attributes/relationships, API design endpoints/params, failure scenarios, NFRs, diagram titles, pro section headings, key concepts, prerequisites, best practices, exercise suggestions, resource URLs, and lesson content (key points, pitfalls, best practices, exercise suggestions)
+- **PDF box height calculation wrong** — Colored boxes for pitfalls, best practices, exercises, and prerequisites were sized by item count instead of wrapped line count, causing text to overflow box boundaries
+- **Payment modal not closing on failure** — Added `payment.failed` event handler to Razorpay checkout; now shows error message and closes modal instead of hanging open
+- **Payment "Try Again" reloaded entire page** — Now retries payment flow inline instead of full page reload
+
+## [2.0.2] - 2026-05-07
+
+### Fixed
+- **FUNCTION_INVOCATION_TIMEOUT on Vercel** — Added 45s per-provider timeout in LLM failover so one slow provider can't exhaust the entire function timeout
+- **LLM timeouts now trigger failover** — "timed out" errors are treated as recoverable, failing over to the next provider
+- **Reduced LLM retries** — Each provider retries 1 time instead of 2; failover across providers handles retries instead
+- **Gemini JSON mode** — `responseMimeType: "application/json"` forces structured output, eliminating markdown wrapper parsing failures and speeding up response
+- **Transcript truncation for long videos** — Videos >120K chars are trimmed to first 60% + last 40% with a gap marker, keeping LLM calls under token limits
+- **Better "not enough content" error messages** — `INSUFFICIENT_CONTENT` errors now include the mode name (e.g., "System Design Pro") and suggest trying Normal or Pro mode
+- **Extract route maxDuration** — Increased from 30s to 60s on Vercel
+- **Extract retry on transient failures** — `extractTranscript` retries once after a short delay on serverless
+
 ## [2.0.1] - 2026-05-07
 
 ### Fixed
