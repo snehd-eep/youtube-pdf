@@ -63,3 +63,40 @@ body {
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
 }
+
+@media print {
+  body {
+    background: white !important;
+    color: #18181b !important;
+    font-size: 11pt;
+    line-height: 1.6;
+  }
+  
+  header, footer, nav, button, .no-print {
+    display: none !important;
+  }
+  
+  .print-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  a {
+    text-decoration: underline;
+    color: #4f46e5;
+  }
+}

@@ -155,8 +155,6 @@ function HomeContent() {
   };
 
   const handleDownload = async () => {
-    if (!pdfBuffer) return;
-
     if (isPaidMode(mode) && !paymentVerified) {
       return;
     }
@@ -171,15 +169,7 @@ function HomeContent() {
       } catch {}
     }
 
-    const blob = new Blob([pdfBuffer], { type: "application/pdf" });
-    const downloadUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = `${summary?.title || "video"}-${mode}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(downloadUrl);
+    window.print();
 
     if (razorpayOrderId && videoId) {
       try {
@@ -597,11 +587,7 @@ function HomeContent() {
               <ProcessingStatus steps={steps} fromCache={fromCache} />
 
               <PdfPreview
-                summary={{
-                  title: summary.title,
-                  overview: (summary as unknown as Record<string, unknown>).overview as string | undefined,
-                  keyTakeaways: ((summary as unknown as Record<string, unknown>).keyTakeaways as string[] | undefined) || [],
-                }}
+                summary={summary}
                 pdfBuffer={pdfBuffer}
                 mode={mode}
                 paymentVerified={paymentVerified}
