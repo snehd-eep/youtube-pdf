@@ -95,6 +95,31 @@ function secHead(doc: jsPDF, text: string, y: number, color?: { r: number; g: nu
   return y;
 }
 
+function sanitizeString(str: string): string {
+  if (typeof str !== "string") return str;
+  return str
+    .replace(/[\u201c\u201d]/g, '"') // Smart double quotes -> "
+    .replace(/[\u2018\u2019]/g, "'") // Smart single quotes -> '
+    .replace(/[\u2014\u2015\u2013]/g, "-") // Em / En dashes -> -
+    .replace(/\u2026/g, "...")       // Ellipsis -> ...
+    .replace(/[\u00a0\xa0\u202f]/g, " ") // Non-breaking spaces -> spaces
+    .replace(/[^\x20-\x7E\xa0-\xff\n\r\t]/g, ""); // Allow ASCII + Latin-1 accents, strip others
+}
+
+export function sanitizeObject(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === "string") return sanitizeString(obj);
+  if (Array.isArray(obj)) return obj.map(sanitizeObject);
+  if (typeof obj === "object") {
+    const newObj: any = {};
+    for (const key of Object.keys(obj)) {
+      newObj[key] = sanitizeObject(obj[key]);
+    }
+    return newObj;
+  }
+  return obj;
+}
+
 function addHighlightedText(doc: jsPDF, text: string, x: number, y: number, maxWidth: number): number {
   // Parse {critical} markers and apply yellow highlighting
   const regex = /\{critical\}(.*?)\{\/critical\}/g;
@@ -114,29 +139,58 @@ function addHighlightedText(doc: jsPDF, text: string, x: number, y: number, maxW
     segments.push({ text: text.slice(lastIndex), highlight: false });
   }
   
-  // Render segments
-  let currentY = y;
-  for (const segment of segments) {
-    const lines = doc.splitTextToSize(segment.text, maxWidth);
-    
-    if (segment.highlight) {
-      // Draw yellow background
-      doc.setFillColor(YELLOW_HIGHLIGHT.r, YELLOW_HIGHLIGHT.g, YELLOW_HIGHLIGHT.b);
-      for (const line of lines) {
-        const textWidth = doc.getTextWidth(line);
-        doc.roundedRect(x - 1, currentY - 3, textWidth + 2, LH + 1, 1, 1, "F");
-        doc.text(line, x, currentY);
-        currentY = cpb(doc, currentY + LH, LH);
-      }
-    } else {
-      for (const line of lines) {
-        doc.text(line, x, currentY);
-        currentY = cpb(doc, currentY + LH, LH);
-      }
+  // Tokenize segments into inline words and spaces
+  const tokens: { text: string; highlight: boolean; isSpace: boolean }[] = [];
+  for (const seg of segments) {
+    const parts = seg.text.split(/(\s+)/);
+    for (const part of parts) {
+      if (!part) continue;
+      tokens.push({
+        text: part,
+        highlight: seg.highlight,
+        isSpace: /^\s+$/.test(part),
+      });
     }
   }
+
+  // Render tokens inline with word wrapping
+  let currentX = x;
+  let currentY = y;
+  const lh = LH;
+
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(51, 51, 51);
+
+  const checkPage = (curY: number, lineH: number) => {
+    const newY = cpb(doc, curY, lineH);
+    if (newY < curY) {
+      currentX = x; // Reset margins on page break
+    }
+    return newY;
+  };
+
+  currentY = checkPage(currentY, lh);
+
+  for (const token of tokens) {
+    const tokenWidth = doc.getTextWidth(token.text);
+
+    // Wrap to next line if token overflows current line width
+    if (currentX + tokenWidth > x + maxWidth) {
+      if (token.isSpace) continue; // Skip trailing wrap space
+      currentY = checkPage(currentY + lh, lh);
+      currentX = x;
+    }
+
+    if (token.highlight) {
+      doc.setFillColor(YELLOW_HIGHLIGHT.r, YELLOW_HIGHLIGHT.g, YELLOW_HIGHLIGHT.b);
+      doc.rect(currentX - 0.5, currentY - lh + 1.5, tokenWidth + 1, lh - 0.5, "F");
+    }
+
+    doc.text(token.text, currentX, currentY);
+    currentX += tokenWidth;
+  }
   
-  return currentY;
+  return currentY + lh;
 }
 
 function processReferences(text: string): string {
@@ -1520,6 +1574,7 @@ export async function generatePdf(
   _transcript?: unknown,
 ): Promise<Buffer> {
   summary = normalizeSummaryResult(summary, mode);
+  summary = sanitizeObject(summary);
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",

@@ -159,6 +159,8 @@ function HomeContent() {
       return;
     }
 
+    if (!pdfBuffer) return;
+
     const videoId = extractVideoId(url);
     const orderId = localStorage.getItem(`payment_${mode}_${videoId}`);
     let razorpayOrderId = null;
@@ -169,7 +171,15 @@ function HomeContent() {
       } catch {}
     }
 
-    window.print();
+    const blob = new Blob([pdfBuffer], { type: "application/pdf" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `${summary?.title || "video"}-${mode}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(downloadUrl);
 
     if (razorpayOrderId && videoId) {
       try {

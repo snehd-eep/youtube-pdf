@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generatePdf } from "@/lib/pdf-generator";
 import { NormalSummary, SystemDesignSummary } from "@/lib/types";
+const pdf = require("pdf-parse");
 
 const normalSummary: NormalSummary = {
   mode: "normal",
@@ -90,5 +91,30 @@ describe("generatePdf", () => {
     const pdfBuffer = await generatePdf(emptyTimestamps, "normal", "test123");
     expect(pdfBuffer).toBeTruthy();
     expect(pdfBuffer.toString("ascii", 0, 4)).toBe("%PDF");
+  });
+
+  it("sanitizes Unicode characters and wraps highlighted text properly", async () => {
+    const summaryWithUnicode: NormalSummary = {
+      ...normalSummary,
+      summary: "This is a {critical}system design{/critical} tutorial explaining concepts with smart quotes like “hello” and em-dashes like —.",
+    };
+
+    const pdfBuffer = await generatePdf(summaryWithUnicode, "normal", "test123");
+    expect(pdfBuffer).toBeTruthy();
+
+    const { PDFParse } = pdf;
+    const parser = new PDFParse({ data: Buffer.from(pdfBuffer) });
+    await parser.load();
+    const parsed = await parser.getText();
+    const text = parsed.text;
+
+    // Check that smart quotes got sanitized to standard ASCII quotes
+    expect(text).toContain('"hello"');
+    // Check that em-dash got sanitized to standard dash/hyphen
+    expect(text).toContain('like -');
+    // Check that the highlighted text wrapped and rendered contiguously without spaces
+    expect(text).toContain('system design');
+    // Check that it does not contain the literal {critical} tags
+    expect(text).not.toContain('{critical}');
   });
 });
