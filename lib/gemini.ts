@@ -470,7 +470,6 @@ let genAI: GoogleGenerativeAI | null = null;
 
 function getGenAI(): GoogleGenerativeAI {
   if (!genAI) {
-    // TODO: Refresh/replace invalid GEMINI_API_KEY
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY environment variable is not set");
@@ -643,6 +642,7 @@ export async function summarizeTranscript(
     model: "gemini-2.5-flash",
     generationConfig: {
       responseMimeType: "application/json",
+      maxOutputTokens: 8192,
     },
   });
 
@@ -701,7 +701,13 @@ ${formattedTranscript}`;
         .replace(/```\s*/g, "")
         .trim();
 
-      const parsed = JSON.parse(cleanedText);
+      let parsed;
+      try {
+        parsed = JSON.parse(cleanedText);
+      } catch (e) {
+        console.error("[Gemini] Failed to parse JSON. Raw response was:", text);
+        throw e;
+      }
 
       // Check for insufficient content
       if (parsed.insufficientContent) {
