@@ -40,7 +40,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const cachedSummary = await getCachedSummary(videoId, mode as Mode);
+    let cachedSummary = null;
+    try {
+      cachedSummary = await getCachedSummary(videoId, mode as Mode);
+    } catch (cacheError) {
+      console.warn("Failed to check cache for summary, continuing with generation:", cacheError);
+    }
+
     if (cachedSummary) {
       console.log(`Cache hit for summary: ${videoId}:${mode}`);
       return NextResponse.json(cachedSummary);
