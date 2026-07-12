@@ -24,9 +24,9 @@ function getCerebrasClient(): OpenAI {
 
 function pickCerebrasModel(transcriptChars: number, mode: Mode): string {
   if (mode === "normal" && transcriptChars < 20000) {
-    return "llama3.1-8b";
+    return "gemma-4-31b";
   }
-  return "llama-3.3-70b";
+  return "gpt-oss-120b";
 }
 
 function isRecoverableError(error: unknown): boolean {
@@ -82,8 +82,8 @@ ${formattedTranscript}`;
   let lastError: Error | null = null;
 
   const models = [pickCerebrasModel(transcriptChars, mode)];
-  if (models[0] !== "llama-3.3-70b") {
-    models.push("llama-3.3-70b");
+  if (models[0] !== "gpt-oss-120b") {
+    models.push("gpt-oss-120b");
   }
 
   for (const model of models) {
@@ -97,7 +97,7 @@ ${formattedTranscript}`;
             { role: "user", content: fullPrompt },
           ],
           temperature: 0.7,
-          max_completion_tokens: 8192,
+          max_tokens: 8192,
         });
 
         const text = completion.choices[0]?.message?.content || "";
