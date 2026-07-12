@@ -50,7 +50,7 @@ export async function summarizeWithFailover(
       console.log(`[LLM] Trying ${provider.name} (mode: ${mode})...`);
       const result = await withTimeout(provider.fn(), PROVIDER_TIMEOUT_MS, provider.name);
       console.log(`[LLM] Success with ${provider.name}`);
-      return result;
+      return normalizeSummaryResult(result, mode);
     } catch (error) {
       const err = error as Error;
       lastError = err;
@@ -66,4 +66,72 @@ export async function summarizeWithFailover(
   }
 
   throw new Error(`All LLM providers failed. Last error: ${lastError?.message}`);
+}
+
+export function normalizeSummaryResult(summary: any, mode: Mode): SummaryResult {
+  if (!summary || typeof summary !== "object") return summary;
+
+  // 1. Flatten "content" field if present
+  if (summary.content && typeof summary.content === "object" && !Array.isArray(summary.content)) {
+    const content = summary.content;
+    for (const key of Object.keys(content)) {
+      if (!(key in summary) || summary[key] === undefined || summary[key] === null) {
+        summary[key] = content[key];
+      }
+    }
+    delete summary.content;
+  }
+
+  // 2. Ensure base arrays/fields exist
+  if (!Array.isArray(summary.sectionsIncluded)) summary.sectionsIncluded = [];
+  if (!Array.isArray(summary.sectionsSkipped)) summary.sectionsSkipped = [];
+  if (!Array.isArray(summary.sectionMetadata)) summary.sectionMetadata = [];
+  if (typeof summary.videoType !== "string") summary.videoType = "other";
+  summary.mode = mode;
+
+  // 3. Mode-specific normalizations
+  if (mode === "system-design" || mode === "system-design-pro") {
+    if (!Array.isArray(summary.diagrams)) summary.diagrams = [];
+    if (!Array.isArray(summary.tradeoffs)) summary.tradeoffs = [];
+    summary.diagrams = summary.diagrams.map((d: any) => ({
+      title: d.title || "Untitled",
+      mermaidCode: (d.mermaidCode || "").replace(/\\n/g, "\n"),
+      description: d.description || "",
+      diagramType: d.diagramType || "flowchart",
+      relatedSection: d.relatedSection,
+    }));
+  }
+
+  if (mode === "pro" || mode === "system-design-pro") {
+    if (!Array.isArray(summary.sections)) summary.sections = [];
+    if (!Array.isArray(summary.definitions)) summary.definitions = [];
+    if (!Array.isArray(summary.callouts)) summary.callouts = [];
+    if (!Array.isArray(summary.qa)) summary.qa = [];
+    summary.sections = summary.sections.map((s: any) => ({
+      heading: s.heading || "Untitled Section",
+      startTime: s.startTime || "00:00",
+      endTime: s.endTime || "00:00",
+      keyPoints: Array.isArray(s.keyPoints) ? s.keyPoints.map(String) : [],
+      sectionSummary: s.sectionSummary || "",
+    }));
+  }
+
+  if (mode === "technical-course" || mode === "technical-course-pro") {
+    if (!Array.isArray(summary.lessons)) summary.lessons = [];
+    if (!Array.isArray(summary.keyConcepts)) summary.keyConcepts = [];
+    if (!Array.isArray(summary.toolsMentioned)) summary.toolsMentioned = [];
+    summary.lessons = summary.lessons.map((l: any) => ({
+      title: l.title || "Untitled Lesson",
+      startTime: l.startTime || "00:00",
+      endTime: l.endTime || "00:00",
+      concepts: Array.isArray(l.concepts) ? l.concepts.map(String) : [],
+      keyPoints: Array.isArray(l.keyPoints) ? l.keyPoints.map(String) : [],
+      codeExamples: Array.isArray(l.codeExamples) ? l.codeExamples : [],
+      pitfalls: Array.isArray(l.pitfalls) ? l.pitfalls.map(String) : [],
+      bestPractices: Array.isArray(l.bestPractices) ? l.bestPractices.map(String) : [],
+      exerciseSuggestions: Array.isArray(l.exerciseSuggestions) ? l.exerciseSuggestions.map(String) : [],
+    }));
+  }
+
+  return summary as SummaryResult;
 }

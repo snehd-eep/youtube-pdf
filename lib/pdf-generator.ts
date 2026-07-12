@@ -24,6 +24,7 @@ import {
   isTechnicalCourseProSummary,
 } from "./types";
 import { fetchDiagramImages } from "./mermaid";
+import { normalizeSummaryResult } from "./llm";
 
 // ─── Constants ───────────────────────────────────────────────────
 const PW = 210;
@@ -1518,6 +1519,7 @@ export async function generatePdf(
   videoId: string,
   _transcript?: unknown,
 ): Promise<Buffer> {
+  summary = normalizeSummaryResult(summary, mode);
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
